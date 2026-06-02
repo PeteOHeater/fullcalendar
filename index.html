@@ -941,9 +941,9 @@
         // We fetch the .ics feed directly via a CORS proxy instead.
         // Multiple CORS proxies — tried in order until one works
         const CORS_PROXIES = [
-            url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
             url => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
             url => `https://thingproxy.freeboard.io/fetch/${url}`,
+            url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
         ];
 
         async function fetchWithProxyFallback(url) {
@@ -1069,8 +1069,19 @@
             return events;
         }
 
+        // Cache for webcal events — avoids re-fetching on every month navigation
+        let webcalCache = null;
+        let webcalCacheTime = 0;
+        const WEBCAL_CACHE_MS = 5 * 60 * 1000; // 5 minutes
+
         // Fetch all configured webcal feeds and return combined events array.
-        async function fetchWebcalEvents() {
+        async function fetchWebcalEvents(forceRefresh = false) {
+            // Return cached result if still fresh
+            if (!forceRefresh && webcalCache && (Date.now() - webcalCacheTime < WEBCAL_CACHE_MS)) {
+                console.log(`Webcal: using cached ${webcalCache.length} events`);
+                return webcalCache;
+            }
+
             const allEvents = [];
             for (const cal of WEBCAL_CALENDARS) {
                 try {
@@ -1094,6 +1105,10 @@
                     console.warn(`Webcal fetch error for ${cal.name}:`, err);
                 }
             }
+
+            // Update cache
+            webcalCache = allEvents;
+            webcalCacheTime = Date.now();
             return allEvents;
         }
 
@@ -1244,10 +1259,13 @@
             }
         }
 
+        let initialLoadDone = false;  // guard against double-fire from gapi+gis both calling maybeEnableButtons
         function maybeEnableButtons() {
             if (gapiInited && gisInited) {
                 const token = gapi.client.getToken();
                 if (token !== null) {
+                    if (initialLoadDone) return;  // already loading, skip second call
+                    initialLoadDone = true;
                     document.getElementById('authSection').style.display = 'none';
                     document.getElementById('calendarSection').style.display = 'block';
                     setYearViewMode(true);
@@ -1828,6 +1846,9 @@
         });
 
         document.getElementById('refreshButton').addEventListener('click', () => {
+            // Force refresh clears webcal cache so MK Q re-fetches fresh data
+            webcalCache = null;
+            webcalCacheTime = 0;
             if (isYearView) {
                 loadYearView();
             } else {
