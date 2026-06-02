@@ -1,0 +1,1982 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Full Calendar View</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        .header {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            color: #333;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #4285f4;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        button:hover {
+            background: #3367d6;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        #signoutButton {
+            background: #ea4335;
+        }
+
+        #signoutButton:hover {
+            background: #c5221f;
+        }
+
+        .nav-buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        .calendar {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .calendar-header {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            background: #4285f4;
+            color: white;
+            font-weight: 600;
+        }
+
+        .calendar-header div {
+            padding: 15px;
+            text-align: center;
+            border-right: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .calendar-header div:last-child {
+            border-right: none;
+        }
+
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 0;
+        }
+
+        .day-cell {
+            min-height: 150px;
+            border: 1px solid #e0e0e0;
+            padding: 8px;
+            background: white;
+            position: relative;
+        }
+
+        .day-cell.other-month {
+            background: #fafafa;
+            color: #999;
+        }
+
+        .day-number {
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #333;
+            font-size: 14px;
+        }
+
+        .day-cell.other-month .day-number {
+            color: #999;
+        }
+
+        /* SA – blue (default) */
+        .day-cell.holiday-SA { background: #e3f2fd !important; }
+        .day-cell.holiday-SA .day-number { color: #1565c0; font-weight: 700; }
+
+        /* VIC – soft teal/green */
+        .day-cell.holiday-VIC { background: #e0f2f1 !important; }
+        .day-cell.holiday-VIC .day-number { color: #00695c; font-weight: 700; }
+
+        /* NSW – soft amber */
+        .day-cell.holiday-NSW { background: #fff8e1 !important; }
+        .day-cell.holiday-NSW .day-number { color: #e65100; font-weight: 700; }
+
+        /* QLD – soft purple */
+        .day-cell.holiday-QLD { background: #f3e5f5 !important; }
+        .day-cell.holiday-QLD .day-number { color: #6a1b9a; font-weight: 700; }
+
+        .holiday-label {
+            position: absolute;
+            top: 2px;
+            right: 4px;
+            font-size: 9px;
+            font-weight: 600;
+            background: rgba(255,255,255,0.85);
+            padding: 1px 4px;
+            border-radius: 3px;
+        }
+        .holiday-label.label-SA  { color: #1565c0; }
+        .holiday-label.label-VIC { color: #00695c; }
+        .holiday-label.label-NSW { color: #e65100; }
+        .holiday-label.label-QLD { color: #6a1b9a; }
+
+        /* Holiday settings modal */
+        .holiday-toggle-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .holiday-toggle-row:last-child { border-bottom: none; }
+        .holiday-swatch {
+            width: 28px; height: 28px;
+            border-radius: 6px;
+            border: 2px solid rgba(0,0,0,0.12);
+            flex-shrink: 0;
+        }
+        .holiday-toggle-label { flex: 1; font-weight: 600; color: #333; font-size: 14px; }
+        .holiday-toggle-sub   { font-size: 12px; color: #888; font-weight: 400; }
+        .toggle-switch {
+            position: relative; width: 44px; height: 24px; flex-shrink: 0;
+        }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .toggle-slider {
+            position: absolute; inset: 0;
+            background: #ccc; border-radius: 24px; cursor: pointer;
+            transition: background 0.2s;
+        }
+        .toggle-slider:before {
+            content: '';
+            position: absolute;
+            width: 18px; height: 18px;
+            left: 3px; top: 3px;
+            background: white; border-radius: 50%;
+            transition: transform 0.2s;
+        }
+        .toggle-switch input:checked + .toggle-slider { background: #4285f4; }
+        .toggle-switch input:checked + .toggle-slider:before { transform: translateX(20px); }
+
+        .event {
+            background: #e3f2fd;
+            border-left: 3px solid #1976d2;
+            padding: 4px 6px;
+            margin-bottom: 4px;
+            border-radius: 3px;
+            font-size: 12px;
+            line-height: 1.4;
+            word-wrap: break-word;
+        }
+
+        .event-time {
+            font-weight: 600;
+            color: #1565c0;
+            margin-right: 4px;
+        }
+
+        .event-title {
+            color: #333;
+        }
+
+        .all-day-event {
+            background: #fff3e0;
+            border-left-color: #f57c00;
+        }
+
+        .all-day-event .event-time {
+            color: #e65100;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .status {
+            padding: 10px;
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .auth-section {
+            max-width: 600px;
+            margin: 100px auto;
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+
+        .auth-section h2 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .auth-section p {
+            margin-bottom: 30px;
+            color: #666;
+            line-height: 1.6;
+        }
+
+        .config-section {
+            background: #fff9e6;
+            border: 2px solid #ffc107;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .config-section h3 {
+            color: #f57c00;
+            margin-bottom: 15px;
+        }
+
+        .config-section input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 13px;
+        }
+
+        .config-section label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #333;
+            text-align: left;
+        }
+
+        .print-button {
+            background: #34a853;
+        }
+
+        .print-button:hover {
+            background: #2d8e47;
+        }
+
+        .custom-periods-button {
+            background: #ff6f00;
+        }
+
+        .custom-periods-button:hover {
+            background: #e65100;
+        }
+
+        /* ===== ERROR BANNER ===== */
+        .error-banner {
+            background: #fdecea;
+            border: 2px solid #ea4335;
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+
+        .error-banner-icon {
+            font-size: 22px;
+            flex-shrink: 0;
+            margin-top: 1px;
+        }
+
+        .error-banner-body {
+            flex: 1;
+            text-align: left;
+        }
+
+        .error-banner-title {
+            font-weight: 700;
+            color: #c62828;
+            margin-bottom: 4px;
+            font-size: 15px;
+        }
+
+        .error-banner-message {
+            color: #555;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .error-banner-actions {
+            margin-top: 10px;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .error-banner-btn {
+            padding: 6px 14px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .error-banner-btn.primary {
+            background: #ea4335;
+            color: white;
+        }
+
+        .error-banner-btn.primary:hover {
+            background: #c5221f;
+        }
+
+        .error-banner-btn.secondary {
+            background: #f1f3f4;
+            color: #333;
+        }
+
+        .error-banner-btn.secondary:hover {
+            background: #e0e0e0;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: 5% auto;
+            padding: 30px;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .modal-header h2 {
+            margin: 0;
+            color: #333;
+        }
+
+        .close-modal {
+            font-size: 28px;
+            font-weight: bold;
+            color: #999;
+            cursor: pointer;
+            border: none;
+            background: none;
+            padding: 0;
+            line-height: 1;
+        }
+
+        .close-modal:hover {
+            color: #333;
+        }
+
+        .period-form {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .form-group input[type="text"],
+        .form-group input[type="date"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .form-group input[type="color"] {
+            width: 100%;
+            height: 50px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .color-preview {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 5px;
+        }
+
+        .color-preview-box {
+            width: 60px;
+            height: 30px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .add-period-button {
+            background: #4285f4;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            width: 100%;
+        }
+
+        .add-period-button:hover {
+            background: #3367d6;
+        }
+
+        .periods-list {
+            margin-top: 20px;
+        }
+
+        .periods-list h3 {
+            margin-bottom: 15px;
+            color: #333;
+        }
+
+        .period-item {
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .period-info {
+            flex: 1;
+        }
+
+        .period-name {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .period-dates {
+            font-size: 13px;
+            color: #666;
+        }
+
+        .period-color-indicator {
+            width: 40px;
+            height: 40px;
+            border-radius: 4px;
+            margin-right: 15px;
+            border: 1px solid #ddd;
+        }
+
+        .period-actions {
+            display: flex;
+            gap: 5px;
+        }
+
+        .edit-button, .delete-button {
+            padding: 5px 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .edit-button {
+            background: #4285f4;
+            color: white;
+        }
+
+        .edit-button:hover {
+            background: #3367d6;
+        }
+
+        .delete-button {
+            background: #ea4335;
+            color: white;
+        }
+
+        .delete-button:hover {
+            background: #c5221f;
+        }
+
+        .no-periods {
+            text-align: center;
+            padding: 20px;
+            color: #999;
+            font-style: italic;
+        }
+
+        #yearViewToggle {
+            background: #9c27b0;
+        }
+
+        #yearViewToggle:hover {
+            background: #7b1fa2;
+        }
+
+        .year-view-container {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 30px;
+            padding: 20px;
+        }
+
+        .month-mini {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            padding: 15px;
+        }
+
+        .month-mini h3 {
+            text-align: center;
+            margin-bottom: 15px;
+            color: #333;
+            font-size: 18px;
+        }
+
+        .month-mini .calendar-header {
+            font-size: 11px;
+            padding: 8px 0;
+        }
+
+        .month-mini .calendar-header div {
+            padding: 5px 2px;
+        }
+
+        .month-mini .day-cell {
+            min-height: 80px;
+            padding: 4px;
+            font-size: 11px;
+        }
+
+        .month-mini .day-number {
+            font-size: 11px;
+            margin-bottom: 4px;
+        }
+
+        .month-mini .event {
+            font-size: 9px;
+            padding: 2px 4px;
+            margin-bottom: 2px;
+            line-height: 1.3;
+        }
+
+        .month-mini .event-time {
+            font-size: 8px;
+        }
+
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+            
+            .header, button {
+                display: none !important;
+            }
+
+            .calendar {
+                box-shadow: none;
+            }
+
+            .day-cell {
+                min-height: 200px;
+                page-break-inside: avoid;
+            }
+
+            .year-view-container {
+                grid-template-columns: repeat(3, 1fr);
+                gap: 20px;
+                padding: 10px;
+            }
+
+            .month-mini {
+                page-break-inside: avoid;
+                box-shadow: none;
+                border: 1px solid #ddd;
+            }
+
+            .month-mini .day-cell {
+                min-height: 60px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .controls {
+                flex-direction: column;
+            }
+
+            button {
+                width: 100%;
+            }
+
+            .year-view-container {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+        }
+    
+        /* ===== BID PERIOD MARKER ===== */
+        .bp-marker {
+            position: absolute;
+            bottom: 5px;
+            right: 5px;
+            font-size: 42px;
+            font-weight: 700;
+            color: rgba(0, 0, 0, 0.08);
+            z-index: 1;
+            pointer-events: none;
+            line-height: 1;
+        }
+
+    </style>
+</head>
+<body>
+    <div id="authSection" class="auth-section">
+        <div class="config-section" id="configSection" style="display: none;">
+            <h3>⚙️ Setup Required</h3>
+            <p style="text-align: left; margin-bottom: 15px;">
+                Before you can use this calendar viewer, you need to create a Google Cloud project and get API credentials:
+            </p>
+            <ol style="text-align: left; margin-bottom: 20px; padding-left: 20px; line-height: 1.8;">
+                <li>Go to <a href="https://console.cloud.google.com/" target="_blank">Google Cloud Console</a></li>
+                <li>Create a new project or select an existing one</li>
+                <li>Enable the Google Calendar API</li>
+                <li>Go to "Credentials" → "Create Credentials" → "API Key"</li>
+                <li>Copy the API Key and paste it below</li>
+                <li>Go to "Credentials" → "Create Credentials" → "OAuth 2.0 Client ID"</li>
+                <li>For Application type, choose "Web application"</li>
+                <li>Add your GitHub Pages URL to "Authorized JavaScript origins" (e.g., https://yourusername.github.io)</li>
+                <li>Copy the Client ID and paste it below</li>
+            </ol>
+            
+            <div style="margin-bottom: 15px;">
+                <label for="apiKeyInput">Google API Key:</label>
+                <input type="password" id="apiKeyInput" placeholder="AIzaSy...">
+            </div>
+            
+            <div style="margin-bottom: 15px;">
+                <label for="clientIdInput">Google OAuth Client ID:</label>
+                <input type="password" id="clientIdInput" placeholder="123456789-abc...apps.googleusercontent.com">
+            </div>
+            
+            <button id="saveConfigButton">Save Configuration</button>
+        </div>
+
+        <!-- Error banner shown when credentials fail -->
+        <div id="errorBanner" class="error-banner" style="display:none;">
+            <div class="error-banner-icon">⚠️</div>
+            <div class="error-banner-body">
+                <div class="error-banner-title" id="errorBannerTitle">Authentication Error</div>
+                <div class="error-banner-message" id="errorBannerMessage">There was a problem with your API credentials.</div>
+                <div class="error-banner-actions">
+                    <button class="error-banner-btn primary" id="errorFixCredsBtn">🔑 Fix Credentials</button>
+                    <button class="error-banner-btn secondary" id="errorClearBtn">🗑️ Clear & Start Over</button>
+                </div>
+            </div>
+        </div>
+
+        <h2>Google Calendar Viewer</h2>
+        <p>Sign in with your Google account to view your calendar with all events visible.</p>
+        <button id="authorizeButton" style="display: none;">Sign In with Google</button>
+        <button id="reconfigureButton" style="display: none; margin-top: 10px; background: #666;">⚙️ Reconfigure API Keys</button>
+        <div id="authStatus" class="status"></div>
+    </div>
+
+    <div id="calendarSection" style="display: none;">
+        <div class="header">
+            <h1 id="monthYear"></h1>
+            <div class="controls">
+                <div class="nav-buttons">
+                    <button id="prevMonth">← Previous</button>
+                    <button id="todayButton">Today</button>
+                    <button id="nextMonth">Next →</button>
+                </div>
+                <button id="yearViewToggle">📅 Year View</button>
+                <button id="customPeriodsButton" class="custom-periods-button">📋 Custom Periods</button>
+                <button id="holidaySettingsButton" style="background:#0097a7;">🏫 School Holidays</button>
+                <button id="refreshButton">🔄 Refresh</button>
+                <button class="print-button" onclick="window.print()">🖨️ Print/PDF</button>
+                <button id="signoutButton">Sign Out</button>
+            </div>
+        </div>
+
+        <div id="content">
+            <div class="loading">Loading calendar...</div>
+        </div>
+    </div>
+
+    <!-- School Holidays Settings Modal -->
+    <div id="holidaySettingsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>🏫 School Holiday Display</h2>
+                <button class="close-modal" id="closeHolidayModal">&times;</button>
+            </div>
+            <p style="color:#666; font-size:13px; margin-bottom:20px; line-height:1.5;">
+                Toggle which states' school holidays are shaded on the calendar. 
+                SA is on by default. Changes take effect immediately.
+            </p>
+            <div id="holidayTogglesContainer"></div>
+        </div>
+    </div>
+
+    <!-- Custom Periods Modal -->
+    <div id="customPeriodsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Custom Period Shading</h2>
+                <button class="close-modal" id="closeModal">&times;</button>
+            </div>
+
+            <div class="period-form">
+                <div class="form-group">
+                    <label for="periodName">Period Name</label>
+                    <input type="text" id="periodName" placeholder="e.g., Vacation, Busy Period, Project Deadline">
+                </div>
+
+                <div class="form-group">
+                    <label for="periodStartDate">Start Date</label>
+                    <input type="date" id="periodStartDate">
+                </div>
+
+                <div class="form-group">
+                    <label for="periodEndDate">End Date</label>
+                    <input type="date" id="periodEndDate">
+                </div>
+
+                <div class="form-group">
+                    <label for="periodColor">Background Color</label>
+                    <input type="color" id="periodColor" value="#ffebee">
+                    <div class="color-preview">
+                        <div class="color-preview-box" id="colorPreview" style="background-color: #ffebee;"></div>
+                        <span id="colorHex">#ffebee</span>
+                    </div>
+                </div>
+
+                <button class="add-period-button" id="addPeriodButton">Add Period</button>
+            </div>
+
+            <div class="periods-list">
+                <h3>Your Custom Periods</h3>
+                <div id="periodsListContainer">
+                    <div class="no-periods">No custom periods yet. Add one above!</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+
+        // ===== HELPER: LOCAL DATE KEY (fixes timezone issues) =====
+        function getLocalDateKey(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        // ===== BID PERIOD MARKER =====
+        const BP_START_DATE = new Date('2026-01-26T00:00:00');
+        const BP_START_NUMBER = 3731;
+
+        function getBidPeriodStart(date) {
+            const targetDate = new Date(date);
+            targetDate.setHours(0, 0, 0, 0);
+            const daysSinceStart = Math.floor((targetDate - BP_START_DATE) / 86400000);
+            if (daysSinceStart >= 0 && daysSinceStart % 28 === 0) {
+                const periodIndex = daysSinceStart / 28;
+                let periodNumber = BP_START_NUMBER;
+                for (let i = 0; i < periodIndex; i++) {
+                    periodNumber += (i % 2 === 0) ? 4 : 6;
+                }
+                return periodNumber;
+            }
+            return null;
+        }
+
+
+        const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest';
+        const SCOPES = 'https://www.googleapis.com/auth/calendar.readonly';
+
+        // School holidays by state 2026
+        const STATE_HOLIDAYS = {
+            SA: {
+                label: 'South Australia',
+                cssClass: 'holiday-SA',
+                labelClass: 'label-SA',
+                swatch: '#bbdefb',
+                periods: [
+                    { start: '2026-04-03', end: '2026-04-19', name: 'SA Autumn Break' },
+                    { start: '2026-07-03', end: '2026-07-19', name: 'SA Winter Break' },
+                    { start: '2026-09-25', end: '2026-10-11', name: 'SA Spring Break' },
+                    { start: '2026-12-18', end: '2027-01-31', name: 'SA Summer Break' }
+                ]
+            },
+            VIC: {
+                label: 'Victoria',
+                cssClass: 'holiday-VIC',
+                labelClass: 'label-VIC',
+                swatch: '#b2dfdb',
+                periods: [
+                    { start: '2026-03-28', end: '2026-04-13', name: 'VIC Autumn Break' },
+                    { start: '2026-06-27', end: '2026-07-12', name: 'VIC Winter Break' },
+                    { start: '2026-09-19', end: '2026-10-04', name: 'VIC Spring Break' },
+                    { start: '2026-12-19', end: '2027-01-31', name: 'VIC Summer Break' }
+                ]
+            },
+            NSW: {
+                label: 'New South Wales',
+                cssClass: 'holiday-NSW',
+                labelClass: 'label-NSW',
+                swatch: '#ffecb3',
+                periods: [
+                    { start: '2026-04-09', end: '2026-04-23', name: 'NSW Autumn Break' },
+                    { start: '2026-07-04', end: '2026-07-19', name: 'NSW Winter Break' },
+                    { start: '2026-09-26', end: '2026-10-11', name: 'NSW Spring Break' },
+                    { start: '2026-12-21', end: '2027-01-27', name: 'NSW Summer Break' }
+                ]
+            },
+            QLD: {
+                label: 'Queensland',
+                cssClass: 'holiday-QLD',
+                labelClass: 'label-QLD',
+                swatch: '#e1bee7',
+                periods: [
+                    { start: '2026-03-28', end: '2026-04-12', name: 'QLD Autumn Break' },
+                    { start: '2026-06-27', end: '2026-07-12', name: 'QLD Winter Break' },
+                    { start: '2026-09-19', end: '2026-10-04', name: 'QLD Spring Break' },
+                    { start: '2026-12-12', end: '2027-01-26', name: 'QLD Summer Break' }
+                ]
+            }
+        };
+
+        // Which states are currently enabled — SA on by default, rest off
+        let enabledStates = JSON.parse(localStorage.getItem('enabled_states') || '["SA"]');
+
+        function saveEnabledStates() {
+            localStorage.setItem('enabled_states', JSON.stringify(enabledStates));
+        }
+
+        // Load custom periods from localStorage
+        let customPeriods = JSON.parse(localStorage.getItem('custom_periods') || '[]');
+
+        function saveCustomPeriods() {
+            localStorage.setItem('custom_periods', JSON.stringify(customPeriods));
+        }
+
+        // ===== DIRECT WEBCAL FETCH (for @import.calendar.google.com calendars) =====
+        // These calendars are one-time snapshots in Google's API and won't return future events.
+        // We fetch the .ics feed directly via a CORS proxy instead.
+        // Multiple CORS proxies — tried in order until one works
+        const CORS_PROXIES = [
+            url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+            url => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+            url => `https://thingproxy.freeboard.io/fetch/${url}`,
+        ];
+
+        async function fetchWithProxyFallback(url) {
+            for (const proxyFn of CORS_PROXIES) {
+                try {
+                    const proxyUrl = proxyFn(url);
+                    console.log(`Trying proxy: ${proxyUrl}`);
+                    const resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(8000) });
+                    if (resp.ok) {
+                        console.log(`Proxy succeeded: ${proxyUrl}`);
+                        return resp;
+                    }
+                    console.warn(`Proxy returned HTTP ${resp.status}, trying next...`);
+                } catch (err) {
+                    console.warn(`Proxy error, trying next:`, err.message);
+                }
+            }
+            throw new Error('All CORS proxies failed for: ' + url);
+        }
+        const WEBCAL_CALENDARS = [
+            {
+                name: 'MK Q',
+                url: 'https://rostersms.com/webcal/pErfPSP4dByJiLFnqA13MEfe3SqpOpi1zfyqv8',
+                color: '#f09300'   // orange — matches MK Q colour in Google Calendar
+            }
+            // Add more webcal feeds here if needed:
+            // { name: 'Another Feed', url: 'https://...', color: '#4285f4' }
+        ];
+
+        // Parse an .ics text into a flat array of event objects compatible with
+        // the Google Calendar API shape used by renderCalendar / renderYearView.
+        function parseICS(icsText, calendarName, calendarColor) {
+            const events = [];
+            const lines = icsText.replace(/\r\n[ \t]/g, '').replace(/\r/g, '').split('\n');
+            let evt = null;
+            for (let raw of lines) {
+                const line = raw.trim();
+                if (line === 'BEGIN:VEVENT') {
+                    evt = {};
+                } else if (line === 'END:VEVENT' && evt) {
+                    // Build a Google-API-shaped event object
+                    const out = {
+                        summary: evt.SUMMARY || '(No title)',
+                        calendarName,
+                        calendarColor,
+                        start: {},
+                        end: {}
+                    };
+                    // DTSTART / DTEND — handle both date-only and dateTime forms
+                    const parseICSDate = (val, param) => {
+                        if (!val) return null;
+                        // All-day: DTSTART;VALUE=DATE:20260610 or DTSTART:20260610
+                        if (/^\d{8}$/.test(val)) {
+                            return { date: val.slice(0,4)+'-'+val.slice(4,6)+'-'+val.slice(6,8) };
+                        }
+                        // DateTime: 20260610T053000Z  or  20260610T053000
+                        const m = val.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/);
+                        if (m) {
+                            const iso = `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}${m[7]||''}`;
+                            return { dateTime: iso };
+                        }
+                        return null;
+                    };
+                    out.start = parseICSDate(evt.DTSTART_VAL) || {};
+                    out.end   = parseICSDate(evt.DTEND_VAL)   || {};
+                    if (out.start.dateTime || out.start.date) {
+                        events.push(out);
+                    }
+                    evt = null;
+                } else if (evt !== null) {
+                    // Property lines: PROPNAME;PARAMS:VALUE  or  PROPNAME:VALUE
+                    const colonIdx = line.indexOf(':');
+                    if (colonIdx === -1) continue;
+                    const propFull = line.slice(0, colonIdx);
+                    const val = line.slice(colonIdx + 1);
+                    const propName = propFull.split(';')[0].toUpperCase();
+                    if (propName === 'DTSTART') evt.DTSTART_VAL = val;
+                    else if (propName === 'DTEND') evt.DTEND_VAL = val;
+                    else if (propName === 'SUMMARY') evt.SUMMARY = val.replace(/\\,/g, ',').replace(/\\n/g, ' ');
+                }
+            }
+            return events;
+        }
+
+        // Fetch all configured webcal feeds and return combined events array.
+        async function fetchWebcalEvents() {
+            const allEvents = [];
+            for (const cal of WEBCAL_CALENDARS) {
+                try {
+                    const resp = await fetchWithProxyFallback(cal.url);
+                    const text = await resp.text();
+                    const events = parseICS(text, cal.name, cal.color);
+                    allEvents.push(...events);
+                    console.log(`Webcal ${cal.name}: loaded ${events.length} events`);
+                } catch (err) {
+                    console.warn(`Webcal fetch error for ${cal.name}:`, err);
+                }
+            }
+            return allEvents;
+        }
+
+        let tokenClient;
+        let gapiInited = false;
+        let gisInited = false;
+        let currentMonth = new Date();
+        let isYearView = false;
+        let API_KEY = localStorage.getItem('gcal_api_key') || '';
+        let CLIENT_ID = localStorage.getItem('gcal_client_id') || '';
+
+        // ===== ERROR BANNER HELPERS =====
+        function showErrorBanner(title, message) {
+            document.getElementById('errorBannerTitle').textContent = title;
+            document.getElementById('errorBannerMessage').textContent = message;
+            document.getElementById('errorBanner').style.display = 'flex';
+            // Hide sign-in button if showing error — credentials are bad
+            document.getElementById('authorizeButton').style.display = 'none';
+            document.getElementById('reconfigureButton').style.display = 'none';
+        }
+
+        function hideErrorBanner() {
+            document.getElementById('errorBanner').style.display = 'none';
+        }
+
+        function showConfigSection(placeholderMode) {
+            const configSection = document.getElementById('configSection');
+            configSection.style.display = 'block';
+            if (placeholderMode) {
+                document.getElementById('apiKeyInput').value = '';
+                document.getElementById('clientIdInput').value = '';
+                document.getElementById('apiKeyInput').placeholder = 'Enter new API Key or leave blank to keep current';
+                document.getElementById('clientIdInput').placeholder = 'Enter new Client ID or leave blank to keep current';
+            }
+            // Scroll to top so user sees the form
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // "Fix Credentials" button in error banner
+        document.getElementById('errorFixCredsBtn').addEventListener('click', () => {
+            hideErrorBanner();
+            showConfigSection(true);
+        });
+
+        // "Clear & Start Over" button — wipes saved keys entirely
+        document.getElementById('errorClearBtn').addEventListener('click', () => {
+            if (confirm('This will delete your saved API Key and Client ID. You will need to enter them again.')) {
+                localStorage.removeItem('gcal_api_key');
+                localStorage.removeItem('gcal_client_id');
+                location.reload();
+            }
+        });
+
+        // Load Google API libraries
+        function loadGoogleAPIs() {
+            const gapiScript = document.createElement('script');
+            gapiScript.src = 'https://apis.google.com/js/api.js';
+            gapiScript.async = true;
+            gapiScript.defer = true;
+            gapiScript.onload = gapiLoaded;
+            gapiScript.onerror = () => {
+                showErrorBanner(
+                    'Failed to load Google API',
+                    'Could not contact Google servers. Check your internet connection and try refreshing the page.'
+                );
+            };
+            document.head.appendChild(gapiScript);
+
+            const gisScript = document.createElement('script');
+            gisScript.src = 'https://accounts.google.com/gsi/client';
+            gisScript.async = true;
+            gisScript.defer = true;
+            gisScript.onload = gisLoaded;
+            gisScript.onerror = () => {
+                showErrorBanner(
+                    'Failed to load Google Sign-In',
+                    'Could not load Google Sign-In. Check your internet connection and try refreshing the page.'
+                );
+            };
+            document.head.appendChild(gisScript);
+        }
+
+        function gapiLoaded() {
+            gapi.load('client', initializeGapiClient);
+        }
+
+        async function initializeGapiClient() {
+            if (!API_KEY) return;
+            
+            try {
+                await gapi.client.init({
+                    apiKey: API_KEY,
+                    discoveryDocs: [DISCOVERY_DOC],
+                });
+                gapiInited = true;
+                maybeEnableButtons();
+            } catch (error) {
+                console.error('Error initializing GAPI:', error);
+                const msg = (error && error.result && error.result.error && error.result.error.message) || 'Unknown error';
+                showErrorBanner(
+                    'Invalid API Key',
+                    `Google rejected the API Key: "${msg}". Please check your API Key and try again.`
+                );
+            }
+        }
+
+        function gisLoaded() {
+            if (!CLIENT_ID) return;
+            
+            try {
+                tokenClient = google.accounts.oauth2.initTokenClient({
+                    client_id: CLIENT_ID,
+                    scope: SCOPES,
+                    callback: '',
+                    error_callback: (err) => {
+                        console.error('OAuth error:', err);
+                        showErrorBanner(
+                            'OAuth Client ID Error',
+                            `Google rejected the Client ID. Make sure it is correct and that your domain is listed under "Authorised JavaScript origins" in the Google Cloud Console.`
+                        );
+                    }
+                });
+                gisInited = true;
+                maybeEnableButtons();
+            } catch (error) {
+                console.error('Error initializing GIS:', error);
+                showErrorBanner(
+                    'Invalid OAuth Client ID',
+                    `Could not initialise sign-in: ${error.message || error}. Please check your Client ID.`
+                );
+            }
+        }
+
+        // Helper to switch UI labels when toggling year/month view
+        function setYearViewMode(yearMode) {
+            isYearView = yearMode;
+            const btn = document.getElementById('yearViewToggle');
+            const prev = document.getElementById('prevMonth');
+            const next = document.getElementById('nextMonth');
+            if (yearMode) {
+                btn.textContent = '📅 Month View';
+                prev.textContent = '← Prev Year';
+                next.textContent = 'Next Year →';
+            } else {
+                btn.textContent = '📅 Year View';
+                prev.textContent = '← Previous';
+                next.textContent = 'Next →';
+            }
+        }
+
+        function maybeEnableButtons() {
+            if (gapiInited && gisInited) {
+                const token = gapi.client.getToken();
+                if (token !== null) {
+                    document.getElementById('authSection').style.display = 'none';
+                    document.getElementById('calendarSection').style.display = 'block';
+                    setYearViewMode(true);
+                    loadYearView();
+                } else {
+                    document.getElementById('authorizeButton').style.display = 'block';
+                    document.getElementById('reconfigureButton').style.display = 'block';
+                    document.getElementById('authStatus').textContent = 'Ready to sign in';
+                }
+            }
+        }
+
+        function handleAuthClick() {
+            tokenClient.callback = async (resp) => {
+                if (resp.error !== undefined) {
+                    console.error('Auth error:', resp);
+                    showErrorBanner(
+                        'Sign-In Failed',
+                        `Google returned an error: "${resp.error}". ` +
+                        (resp.error === 'access_denied'
+                            ? 'You denied access — please try again and click Allow.'
+                            : 'Check that your Client ID and API Key are correct.')
+                    );
+                    return;
+                }
+                document.getElementById('authSection').style.display = 'none';
+                document.getElementById('calendarSection').style.display = 'block';
+                setYearViewMode(true);
+                await loadYearView();
+            };
+
+            if (gapi.client.getToken() === null) {
+                tokenClient.requestAccessToken({prompt: ''});
+            } else {
+                tokenClient.requestAccessToken({prompt: ''});
+            }
+        }
+
+        function handleSignoutClick() {
+            const token = gapi.client.getToken();
+            if (token !== null) {
+                google.accounts.oauth2.revoke(token.access_token);
+                gapi.client.setToken('');
+                document.getElementById('authSection').style.display = 'block';
+                document.getElementById('calendarSection').style.display = 'none';
+                hideErrorBanner();
+                document.getElementById('authorizeButton').style.display = 'block';
+                document.getElementById('reconfigureButton').style.display = 'block';
+            }
+        }
+
+        async function loadCalendar() {
+            const year = currentMonth.getFullYear();
+            const month = currentMonth.getMonth();
+            
+            document.getElementById('monthYear').textContent = 
+                currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+            const firstDay = new Date(year, month, 1);
+            const lastDay = new Date(year, month + 1, 0);
+            
+            const startDate = new Date(firstDay);
+            startDate.setDate(startDate.getDate() - ((startDate.getDay() + 6) % 7));
+            
+            const endDate = new Date(lastDay);
+            endDate.setDate(endDate.getDate() + (6 - ((endDate.getDay() + 6) % 7)));
+
+            // Pad the API query window by 24h each side so that subscribed calendars
+            // stored in UTC (e.g. MK Q from rostersms) are not clipped by timezone offset.
+            const queryStart = new Date(startDate.getTime() - 24 * 60 * 60 * 1000);
+            const queryEnd   = new Date(endDate.getTime()   + 24 * 60 * 60 * 1000);
+
+            try {
+                // ===== FIX: showHidden:true to include subscribed/other calendars =====
+                const calendarListResponse = await gapi.client.calendar.calendarList.list({
+                    showHidden: true,
+                    showDeleted: false
+                });
+                const calendars = calendarListResponse.result.items || [];
+                
+                const allEvents = [];
+                for (const calendar of calendars) {
+                    try {
+                        const response = await gapi.client.calendar.events.list({
+                            'calendarId': calendar.id,
+                            'timeMin': queryStart.toISOString(),
+                            'timeMax': queryEnd.toISOString(),
+                            'showDeleted': false,
+                            'singleEvents': true,
+                            'orderBy': 'startTime'
+                        });
+
+                        const events = response.result.items || [];
+                        events.forEach(event => {
+                            event.calendarColor = calendar.backgroundColor || '#4285f4';
+                            event.calendarName = calendar.summary;
+                        });
+                        allEvents.push(...events);
+                    } catch (error) {
+                        console.warn(`Error loading calendar ${calendar.summary}:`, error);
+                    }
+                }
+
+                // Also fetch webcal feeds directly (bypasses Google API limitation
+                // on @import.calendar.google.com calendars which only snapshot past events)
+                const webcalEvents = await fetchWebcalEvents();
+                allEvents.push(...webcalEvents);
+
+                allEvents.sort((a, b) => {
+                    const aTime = a.start.dateTime || a.start.date;
+                    const bTime = b.start.dateTime || b.start.date;
+                    return new Date(aTime) - new Date(bTime);
+                });
+
+                // Render still uses the display window (startDate/endDate), not the padded query window
+                renderCalendar(startDate, endDate, allEvents, month);
+            } catch (error) {
+                console.error('Error loading calendar:', error);
+                const status = error && error.status;
+                if (status === 401 || status === 403) {
+                    showErrorBanner(
+                        'Calendar Access Denied',
+                        'Google denied access to your calendar. Your credentials may be wrong or expired. Try signing out and back in, or fix your API Key.'
+                    );
+                    document.getElementById('calendarSection').style.display = 'none';
+                    document.getElementById('authSection').style.display = 'block';
+                } else {
+                    document.getElementById('content').innerHTML = 
+                        '<div class="status">Error loading calendar. Please try refreshing.</div>';
+                }
+            }
+        }
+
+        function renderCalendar(startDate, endDate, events, currentMonthIndex) {
+            const calendar = document.createElement('div');
+            calendar.className = 'calendar';
+            
+            const header = document.createElement('div');
+            header.className = 'calendar-header';
+            ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].forEach(day => {
+                const dayEl = document.createElement('div');
+                dayEl.textContent = day;
+                header.appendChild(dayEl);
+            });
+            calendar.appendChild(header);
+
+            const grid = document.createElement('div');
+            grid.className = 'calendar-grid';
+
+            const eventsByDay = {};
+            events.forEach(event => {
+                if (event.start.date && event.end.date) {
+                    // All-day events: use the date string directly (no TZ conversion needed)
+                    const startDate = new Date(event.start.date);
+                    const endDate = new Date(event.end.date);
+                    endDate.setDate(endDate.getDate() - 1);
+                    let currentDay = new Date(startDate);
+                    while (currentDay <= endDate) {
+                        const dayKey = getLocalDateKey(currentDay);
+                        if (!eventsByDay[dayKey]) eventsByDay[dayKey] = [];
+                        eventsByDay[dayKey].push(event);
+                        currentDay.setDate(currentDay.getDate() + 1);
+                    }
+                } else {
+                    // Timed events: bucket by LOCAL date
+                    const startTime = event.start.dateTime || event.start.date;
+                    const localDay = new Date(startTime);
+                    const localKey = getLocalDateKey(localDay);
+                    if (!eventsByDay[localKey]) eventsByDay[localKey] = [];
+                    // Avoid duplicate if already added
+                    if (!eventsByDay[localKey].includes(event)) eventsByDay[localKey].push(event);
+                    // Also bucket by UTC date — catches webcal feeds stored in UTC
+                    // (e.g. MK Q from rostersms which uses GMT+00:00)
+                    const utcKey = localDay.toISOString().slice(0, 10);
+                    if (utcKey !== localKey) {
+                        if (!eventsByDay[utcKey]) eventsByDay[utcKey] = [];
+                        if (!eventsByDay[utcKey].includes(event)) eventsByDay[utcKey].push(event);
+                    }
+                }
+            });
+
+            let currentDate = new Date(startDate);
+            while (currentDate <= endDate) {
+                const dayCell = document.createElement('div');
+                dayCell.className = 'day-cell';
+
+                const bpNumber = getBidPeriodStart(currentDate);
+                if (bpNumber) {
+                    const bpMarker = document.createElement('div');
+                    bpMarker.className = 'bp-marker';
+                    bpMarker.textContent = 'BP' + bpNumber;
+                    dayCell.appendChild(bpMarker);
+                }
+                
+                if (currentDate.getMonth() !== currentMonthIndex) {
+                    dayCell.classList.add('other-month');
+                }
+
+                const dayKey = getLocalDateKey(currentDate);
+                
+                const holiday = getSchoolHoliday(dayKey);
+                if (holiday) {
+                    dayCell.classList.add(holiday.cssClass);
+                }
+
+                const customPeriod = getCustomPeriod(dayKey);
+                if (customPeriod) {
+                    dayCell.style.backgroundColor = customPeriod.color;
+                }
+
+                const dayNumber = document.createElement('div');
+                dayNumber.className = 'day-number';
+                dayNumber.textContent = currentDate.getDate();
+                dayCell.appendChild(dayNumber);
+
+                if (holiday && !customPeriod) {
+                    const prevDayKey = new Date(currentDate.getTime() - 86400000).toISOString().split('T')[0];
+                    const prevHoliday = getSchoolHoliday(prevDayKey);
+                    if (!prevHoliday || prevHoliday.name !== holiday.name) {
+                        const label = document.createElement('div');
+                        label.className = 'holiday-label ' + holiday.labelClass;
+                        label.textContent = holiday.name;
+                        dayCell.appendChild(label);
+                    }
+                }
+
+                if (customPeriod) {
+                    const prevDayKey = new Date(currentDate.getTime() - 86400000).toISOString().split('T')[0];
+                    const prevPeriod = getCustomPeriod(prevDayKey);
+                    if (!prevPeriod || prevPeriod.name !== customPeriod.name) {
+                        const label = document.createElement('div');
+                        label.className = 'holiday-label';
+                        label.textContent = customPeriod.name;
+                        dayCell.appendChild(label);
+                    }
+                }
+
+                const dayEvents = eventsByDay[dayKey] || [];
+                
+                dayEvents.forEach(event => {
+                    const eventEl = document.createElement('div');
+                    eventEl.className = 'event';
+                    
+                    if (event.calendarColor) {
+                        eventEl.style.borderLeftColor = event.calendarColor;
+                        const rgb = hexToRgb(event.calendarColor);
+                        if (rgb) {
+                            eventEl.style.backgroundColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.15)`;
+                        }
+                    }
+                    
+                    if (event.start.date) {
+                        eventEl.classList.add('all-day-event');
+                        eventEl.innerHTML = `
+                            <span class="event-time">All day</span>
+                            <span class="event-title">${escapeHtml(event.summary || '(No title)')}</span>
+                        `;
+                    } else {
+                        const startTime = new Date(event.start.dateTime);
+                        const timeStr = startTime.toLocaleTimeString('en-US', { 
+                            hour: 'numeric', 
+                            minute: '2-digit',
+                            hour12: true 
+                        });
+                        eventEl.innerHTML = `
+                            <span class="event-time">${timeStr}</span>
+                            <span class="event-title">${escapeHtml(event.summary || '(No title)')}</span>
+                        `;
+                    }
+                    
+                    dayCell.appendChild(eventEl);
+                });
+
+                grid.appendChild(dayCell);
+                currentDate.setDate(currentDate.getDate() + 1);
+            }
+
+            calendar.appendChild(grid);
+            document.getElementById('content').innerHTML = '';
+            document.getElementById('content').appendChild(calendar);
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function hexToRgb(hex) {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? {
+                r: parseInt(result[1], 16),
+                g: parseInt(result[2], 16),
+                b: parseInt(result[3], 16)
+            } : null;
+        }
+
+        // Returns { name, cssClass, labelClass } for the first matching enabled state, or null
+        function getSchoolHoliday(dateString) {
+            for (const stateCode of enabledStates) {
+                const state = STATE_HOLIDAYS[stateCode];
+                if (!state) continue;
+                for (const period of state.periods) {
+                    if (dateString >= period.start && dateString <= period.end) {
+                        return { name: period.name, cssClass: state.cssClass, labelClass: state.labelClass };
+                    }
+                }
+            }
+            return null;
+        }
+
+        function getCustomPeriod(dateString) {
+            for (const period of customPeriods) {
+                if (dateString >= period.start && dateString <= period.end) {
+                    return period;
+                }
+            }
+            return null;
+        }
+
+        async function loadYearView() {
+            const year = currentMonth.getFullYear();
+            document.getElementById('monthYear').textContent = year;
+
+            try {
+                // ===== FIX: showHidden:true to include subscribed/other calendars =====
+                const calendarListResponse = await gapi.client.calendar.calendarList.list({
+                    showHidden: true,
+                    showDeleted: false
+                });
+                const calendars = calendarListResponse.result.items || [];
+                
+                const yearStart = new Date(year, 0, 1);
+                const yearEnd = new Date(year, 11, 31, 23, 59, 59);
+
+                // Pad by 24h each side for UTC-stored subscribed calendars (e.g. MK Q)
+                const yearQueryStart = new Date(yearStart.getTime() - 24 * 60 * 60 * 1000);
+                const yearQueryEnd   = new Date(yearEnd.getTime()   + 24 * 60 * 60 * 1000);
+                
+                const allEvents = [];
+                for (const calendar of calendars) {
+                    try {
+                        const response = await gapi.client.calendar.events.list({
+                            'calendarId': calendar.id,
+                            'timeMin': yearQueryStart.toISOString(),
+                            'timeMax': yearQueryEnd.toISOString(),
+                            'showDeleted': false,
+                            'singleEvents': true,
+                            'orderBy': 'startTime'
+                        });
+
+                        const events = response.result.items || [];
+                        events.forEach(event => {
+                            event.calendarColor = calendar.backgroundColor || '#4285f4';
+                            event.calendarName = calendar.summary;
+                        });
+                        allEvents.push(...events);
+                    } catch (error) {
+                        console.warn(`Error loading calendar ${calendar.summary}:`, error);
+                    }
+                }
+
+                // Also fetch webcal feeds directly
+                const webcalEventsYear = await fetchWebcalEvents();
+                allEvents.push(...webcalEventsYear);
+
+                renderYearView(year, allEvents);
+            } catch (error) {
+                console.error('Error loading year view:', error);
+                document.getElementById('content').innerHTML = 
+                    '<div class="status">Error loading year view. Please try again.</div>';
+            }
+        }
+
+        function renderYearView(year, events) {
+            const yearContainer = document.createElement('div');
+            yearContainer.className = 'year-view-container';
+
+            const eventsByDay = {};
+            events.forEach(event => {
+                if (event.start.date && event.end.date) {
+                    const startDate = new Date(event.start.date);
+                    const endDate = new Date(event.end.date);
+                    endDate.setDate(endDate.getDate() - 1);
+                    let currentDay = new Date(startDate);
+                    while (currentDay <= endDate) {
+                        const dayKey = getLocalDateKey(currentDay);
+                        if (!eventsByDay[dayKey]) eventsByDay[dayKey] = [];
+                        eventsByDay[dayKey].push(event);
+                        currentDay.setDate(currentDay.getDate() + 1);
+                    }
+                } else {
+                    const startTime = event.start.dateTime || event.start.date;
+                    const localDay = new Date(startTime);
+                    const localKey = getLocalDateKey(localDay);
+                    if (!eventsByDay[localKey]) eventsByDay[localKey] = [];
+                    if (!eventsByDay[localKey].includes(event)) eventsByDay[localKey].push(event);
+                    // Also bucket by UTC date for webcal feeds stored in UTC (e.g. MK Q)
+                    const utcKey = localDay.toISOString().slice(0, 10);
+                    if (utcKey !== localKey) {
+                        if (!eventsByDay[utcKey]) eventsByDay[utcKey] = [];
+                        if (!eventsByDay[utcKey].includes(event)) eventsByDay[utcKey].push(event);
+                    }
+                }
+            });
+
+            for (let month = 0; month < 12; month++) {
+                const monthDiv = document.createElement('div');
+                monthDiv.className = 'month-mini';
+
+                const monthHeader = document.createElement('h3');
+                monthHeader.textContent = new Date(year, month, 1).toLocaleDateString('en-US', { 
+                    month: 'long', 
+                    year: 'numeric' 
+                });
+                monthDiv.appendChild(monthHeader);
+
+                const calendar = document.createElement('div');
+                calendar.className = 'calendar';
+
+                const header = document.createElement('div');
+                header.className = 'calendar-header';
+                ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].forEach(day => {
+                    const dayEl = document.createElement('div');
+                    dayEl.textContent = day;
+                    header.appendChild(dayEl);
+                });
+                calendar.appendChild(header);
+
+                const grid = document.createElement('div');
+                grid.className = 'calendar-grid';
+
+                const firstDay = new Date(year, month, 1);
+                const lastDay = new Date(year, month + 1, 0);
+                
+                const startDate = new Date(firstDay);
+                startDate.setDate(startDate.getDate() - ((startDate.getDay() + 6) % 7));
+                
+                const endDate = new Date(lastDay);
+                endDate.setDate(endDate.getDate() + (6 - ((endDate.getDay() + 6) % 7)));
+
+                let currentDate = new Date(startDate);
+                while (currentDate <= endDate) {
+                    const dayCell = document.createElement('div');
+                    dayCell.className = 'day-cell';
+
+                    const bpNumber = getBidPeriodStart(currentDate);
+                    if (bpNumber) {
+                        const bpMarker = document.createElement('div');
+                        bpMarker.className = 'bp-marker';
+                        bpMarker.textContent = 'BP' + bpNumber;
+                        dayCell.appendChild(bpMarker);
+                    }
+                    
+                    if (currentDate.getMonth() !== month) {
+                        dayCell.classList.add('other-month');
+                    }
+
+                    const dayKey = getLocalDateKey(currentDate);
+                    
+                    const holiday = getSchoolHoliday(dayKey);
+                    if (holiday) {
+                        dayCell.classList.add(holiday.cssClass);
+                    }
+
+                    const customPeriod = getCustomPeriod(dayKey);
+                    if (customPeriod) {
+                        dayCell.style.backgroundColor = customPeriod.color;
+                    }
+
+                    const dayNumber = document.createElement('div');
+                    dayNumber.className = 'day-number';
+                    dayNumber.textContent = currentDate.getDate();
+                    dayCell.appendChild(dayNumber);
+
+                    const dayEvents = eventsByDay[dayKey] || [];
+                    
+                    dayEvents.forEach(event => {
+                        const eventEl = document.createElement('div');
+                        eventEl.className = 'event';
+                        
+                        if (event.calendarColor) {
+                            eventEl.style.borderLeftColor = event.calendarColor;
+                            const rgb = hexToRgb(event.calendarColor);
+                            if (rgb) {
+                                eventEl.style.backgroundColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.15)`;
+                            }
+                        }
+                        
+                        if (event.start.date) {
+                            eventEl.classList.add('all-day-event');
+                            eventEl.innerHTML = `
+                                <span class="event-time">All</span>
+                                <span class="event-title">${escapeHtml(event.summary || '(No title)')}</span>
+                            `;
+                        } else {
+                            const startTime = new Date(event.start.dateTime);
+                            const timeStr = startTime.toLocaleTimeString('en-US', { 
+                                hour: 'numeric', 
+                                minute: '2-digit',
+                                hour12: true 
+                            });
+                            eventEl.innerHTML = `
+                                <span class="event-time">${timeStr.replace(' ', '')}</span>
+                                <span class="event-title">${escapeHtml(event.summary || '(No title)')}</span>
+                            `;
+                        }
+                        
+                        dayCell.appendChild(eventEl);
+                    });
+
+                    grid.appendChild(dayCell);
+                    currentDate.setDate(currentDate.getDate() + 1);
+                }
+
+                calendar.appendChild(grid);
+                monthDiv.appendChild(calendar);
+                yearContainer.appendChild(monthDiv);
+            }
+
+            document.getElementById('content').innerHTML = '';
+            document.getElementById('content').appendChild(yearContainer);
+        }
+
+        // Event listeners
+        document.getElementById('saveConfigButton').addEventListener('click', () => {
+            const apiKey = document.getElementById('apiKeyInput').value.trim();
+            const clientId = document.getElementById('clientIdInput').value.trim();
+            
+            const finalApiKey = apiKey || API_KEY;
+            const finalClientId = clientId || CLIENT_ID;
+            
+            if (!finalApiKey || !finalClientId) {
+                alert('Please enter both API Key and Client ID');
+                return;
+            }
+            
+            localStorage.setItem('gcal_api_key', finalApiKey);
+            localStorage.setItem('gcal_client_id', finalClientId);
+            API_KEY = finalApiKey;
+            CLIENT_ID = finalClientId;
+            
+            alert('Configuration saved! Reloading page...');
+            location.reload();
+        });
+
+        document.getElementById('reconfigureButton').addEventListener('click', () => {
+            showConfigSection(true);
+        });
+
+        document.getElementById('authorizeButton').addEventListener('click', handleAuthClick);
+        document.getElementById('signoutButton').addEventListener('click', handleSignoutClick);
+        
+        document.getElementById('prevMonth').addEventListener('click', () => {
+            if (isYearView) {
+                currentMonth.setFullYear(currentMonth.getFullYear() - 1);
+                loadYearView();
+            } else {
+                currentMonth.setMonth(currentMonth.getMonth() - 1);
+                loadCalendar();
+            }
+        });
+        
+        document.getElementById('nextMonth').addEventListener('click', () => {
+            if (isYearView) {
+                currentMonth.setFullYear(currentMonth.getFullYear() + 1);
+                loadYearView();
+            } else {
+                currentMonth.setMonth(currentMonth.getMonth() + 1);
+                loadCalendar();
+            }
+        });
+        
+        document.getElementById('todayButton').addEventListener('click', () => {
+            currentMonth = new Date();
+            if (isYearView) {
+                loadYearView();
+            } else {
+                loadCalendar();
+            }
+        });
+
+        document.getElementById('yearViewToggle').addEventListener('click', () => {
+            setYearViewMode(!isYearView);
+            if (isYearView) {
+                loadYearView();
+            } else {
+                loadCalendar();
+            }
+        });
+
+        document.getElementById('refreshButton').addEventListener('click', () => {
+            if (isYearView) {
+                loadYearView();
+            } else {
+                loadCalendar();
+            }
+        });
+
+        // Custom Periods Modal Management
+        const modal = document.getElementById('customPeriodsModal');
+        const customPeriodsButton = document.getElementById('customPeriodsButton');
+        const closeModal = document.getElementById('closeModal');
+        const addPeriodButton = document.getElementById('addPeriodButton');
+        const periodColorInput = document.getElementById('periodColor');
+        const colorPreview = document.getElementById('colorPreview');
+        const colorHex = document.getElementById('colorHex');
+
+        periodColorInput.addEventListener('input', (e) => {
+            colorPreview.style.backgroundColor = e.target.value;
+            colorHex.textContent = e.target.value;
+        });
+
+        customPeriodsButton.addEventListener('click', () => {
+            modal.style.display = 'block';
+            renderPeriodsList();
+        });
+
+        closeModal.addEventListener('click', () => {
+            modal.style.display = 'none';
+        });
+
+        window.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.style.display = 'none';
+            }
+        });
+
+        addPeriodButton.addEventListener('click', () => {
+            const name = document.getElementById('periodName').value.trim();
+            const startDate = document.getElementById('periodStartDate').value;
+            const endDate = document.getElementById('periodEndDate').value;
+            const color = document.getElementById('periodColor').value;
+
+            if (!name || !startDate || !endDate) {
+                alert('Please fill in all fields');
+                return;
+            }
+
+            if (new Date(startDate) > new Date(endDate)) {
+                alert('Start date must be before or equal to end date');
+                return;
+            }
+
+            customPeriods.push({
+                id: Date.now(),
+                name: name,
+                start: startDate,
+                end: endDate,
+                color: color
+            });
+
+            saveCustomPeriods();
+            renderPeriodsList();
+
+            document.getElementById('periodName').value = '';
+            document.getElementById('periodStartDate').value = '';
+            document.getElementById('periodEndDate').value = '';
+            document.getElementById('periodColor').value = '#ffebee';
+            colorPreview.style.backgroundColor = '#ffebee';
+            colorHex.textContent = '#ffebee';
+
+            if (isYearView) {
+                loadYearView();
+            } else {
+                loadCalendar();
+            }
+        });
+
+        function renderPeriodsList() {
+            const container = document.getElementById('periodsListContainer');
+            
+            if (customPeriods.length === 0) {
+                container.innerHTML = '<div class="no-periods">No custom periods yet. Add one above!</div>';
+                return;
+            }
+
+            container.innerHTML = customPeriods.map(period => `
+                <div class="period-item">
+                    <div class="period-color-indicator" style="background-color: ${period.color};"></div>
+                    <div class="period-info">
+                        <div class="period-name">${escapeHtml(period.name)}</div>
+                        <div class="period-dates">${formatDate(period.start)} - ${formatDate(period.end)}</div>
+                    </div>
+                    <div class="period-actions">
+                        <button class="delete-button" onclick="deletePeriod(${period.id})">Delete</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+
+        window.deletePeriod = function(id) {
+            if (confirm('Are you sure you want to delete this period?')) {
+                customPeriods = customPeriods.filter(p => p.id !== id);
+                saveCustomPeriods();
+                renderPeriodsList();
+                
+                if (isYearView) {
+                    loadYearView();
+                } else {
+                    loadCalendar();
+                }
+            }
+        };
+
+        // ===== SCHOOL HOLIDAY SETTINGS MODAL =====
+        const holidaySettingsModal = document.getElementById('holidaySettingsModal');
+
+        function renderHolidayToggles() {
+            const container = document.getElementById('holidayTogglesContainer');
+            container.innerHTML = '';
+            Object.entries(STATE_HOLIDAYS).forEach(([code, state]) => {
+                const isOn = enabledStates.includes(code);
+                const row = document.createElement('div');
+                row.className = 'holiday-toggle-row';
+                row.innerHTML = `
+                    <div class="holiday-swatch" style="background:${state.swatch};"></div>
+                    <div class="holiday-toggle-label">
+                        ${state.label}
+                        <span class="holiday-toggle-sub"> (${code})</span>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" data-state="${code}" ${isOn ? 'checked' : ''}>
+                        <span class="toggle-slider"></span>
+                    </label>
+                `;
+                container.appendChild(row);
+            });
+
+            container.querySelectorAll('input[type=checkbox]').forEach(cb => {
+                cb.addEventListener('change', (e) => {
+                    const code = e.target.dataset.state;
+                    if (e.target.checked) {
+                        if (!enabledStates.includes(code)) enabledStates.push(code);
+                    } else {
+                        enabledStates = enabledStates.filter(s => s !== code);
+                    }
+                    saveEnabledStates();
+                    // Refresh calendar immediately
+                    if (isYearView) loadYearView(); else loadCalendar();
+                });
+            });
+        }
+
+        document.getElementById('holidaySettingsButton').addEventListener('click', () => {
+            renderHolidayToggles();
+            holidaySettingsModal.style.display = 'block';
+        });
+
+        document.getElementById('closeHolidayModal').addEventListener('click', () => {
+            holidaySettingsModal.style.display = 'none';
+        });
+
+        window.addEventListener('click', (e) => {
+            if (e.target === holidaySettingsModal) holidaySettingsModal.style.display = 'none';
+        });
+
+        // Auto-refresh every 5 minutes
+        setInterval(() => {
+            if (gapi.client.getToken() !== null) {
+                if (isYearView) {
+                    loadYearView();
+                } else {
+                    loadCalendar();
+                }
+            }
+        }, 5 * 60 * 1000);
+
+        // Initialize
+        if (API_KEY && CLIENT_ID) {
+            document.getElementById('configSection').style.display = 'none';
+            loadGoogleAPIs();
+        } else {
+            document.getElementById('configSection').style.display = 'block';
+            document.getElementById('authStatus').textContent = 'Please configure your API credentials above';
+        }
+    </script>
+</body>
+</html>
