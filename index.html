@@ -1088,19 +1088,28 @@
                     const resp = await fetchWithProxyFallback(cal.url);
                     const text = await resp.text();
 
-                    // Debug: log a sample of raw DTSTART lines from the feed
-                    const sampleLines = text.split('\n')
-                        .filter(l => l.startsWith('DTSTART') || l.startsWith('SUMMARY'))
-                        .slice(0, 10);
-                    console.log(`Webcal ${cal.name} raw sample:`, sampleLines);
-
                     const events = parseICS(text, cal.name, cal.color);
                     allEvents.push(...events);
                     console.log(`Webcal ${cal.name}: loaded ${events.length} events`);
-                    // Log first 3 parsed events for verification
-                    events.slice(0,3).forEach(e => console.log(
-                        `  → ${e.summary} | start: ${e.start.dateTime || e.start.date}`
-                    ));
+
+                    // Debug: find QF670 events and show raw vs parsed vs local date
+                    const lines = text.replace(/\r/g,'').split('\n');
+                    let inEvt = false, summ = '', dtstart = '';
+                    for (const l of lines) {
+                        if (l === 'BEGIN:VEVENT') { inEvt = true; summ=''; dtstart=''; }
+                        else if (l === 'END:VEVENT') {
+                            if (summ.includes('QF670') || summ.includes('QF675')) {
+                                const parsed = events.find(e => e.summary === summ);
+                                const dt = parsed ? (parsed.start.dateTime || parsed.start.date) : '?';
+                                const localDate = dt ? new Date(dt).toLocaleString('en-AU', {timeZone:'Australia/Adelaide'}) : '?';
+                                console.log(`RAW: ${summ} | DTSTART: ${dtstart} | parsed: ${dt} | Adelaide: ${localDate}`);
+                            }
+                            inEvt = false;
+                        } else if (inEvt) {
+                            if (l.startsWith('SUMMARY')) summ = l.slice(l.indexOf(':')+1).trim();
+                            if (l.startsWith('DTSTART')) dtstart = l.trim();
+                        }
+                    }
                 } catch (err) {
                     console.warn(`Webcal fetch error for ${cal.name}:`, err);
                 }
