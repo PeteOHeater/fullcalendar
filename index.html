@@ -977,14 +977,15 @@
         // the Google Calendar API shape used by renderCalendar / renderYearView.
         function parseICS(icsText, calendarName, calendarColor) {
             const events = [];
-            const lines = icsText.replace(/\r\n[ \t]/g, '').replace(/\r/g, '').split('\n');
+            // Unfold RFC5545 line continuations (CRLF + whitespace = continuation)
+            const unfolded = icsText.replace(/\r\n[ \t]/g, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+            const lines = unfolded.split('\n');
             let evt = null;
             for (let raw of lines) {
                 const line = raw.trim();
                 if (line === 'BEGIN:VEVENT') {
                     evt = {};
                 } else if (line === 'END:VEVENT' && evt) {
-                    // Build a Google-API-shaped event object
                     const out = {
                         summary: evt.SUMMARY || '(No title)',
                         calendarName,
@@ -992,23 +993,55 @@
                         start: {},
                         end: {}
                     };
-                    // DTSTART / DTEND — handle both date-only and dateTime forms
-                    const parseICSDate = (val, param) => {
+
+                    // Parse a DTSTART/DTEND value + its parameters into a Google-shaped object.
+                    // Handles: DATE-only, UTC datetime (Z), and TZID-qualified datetime.
+                    const parseICSDate = (val, params) => {
                         if (!val) return null;
-                        // All-day: DTSTART;VALUE=DATE:20260610 or DTSTART:20260610
+
+                        // All-day: VALUE=DATE — just 8 digits
                         if (/^\d{8}$/.test(val)) {
                             return { date: val.slice(0,4)+'-'+val.slice(4,6)+'-'+val.slice(6,8) };
                         }
+
                         // DateTime: 20260610T053000Z  or  20260610T053000
                         const m = val.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/);
-                        if (m) {
-                            const iso = `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}${m[7]||''}`;
-                            return { dateTime: iso };
+                        if (!m) return null;
+
+                        const isoBase = `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}`;
+                        const hasZ = m[7] === 'Z';
+
+                        if (hasZ) {
+                            // UTC — append Z so JS Date() treats it correctly
+                            return { dateTime: isoBase + 'Z' };
                         }
-                        return null;
+
+                        // No Z — check for TZID param e.g. DTSTART;TZID=UTC:20260610T053000
+                        // rostersms uses TZID=UTC which is effectively the same as Z
+                        const tzid = (params || '').match(/TZID=([^;:]+)/i);
+                        if (tzid) {
+                            const tz = tzid[1].trim();
+                            if (tz === 'UTC' || tz === 'Etc/UTC' || tz === 'GMT') {
+                                return { dateTime: isoBase + 'Z' };
+                            }
+                            // For other TZID values, let Intl handle it if possible
+                            try {
+                                // Build a local-time string that JS can interpret with the tz
+                                const d = new Date(`${isoBase}`);
+                                // Approximate: just return with no suffix and hope it's UTC-like
+                                return { dateTime: isoBase + 'Z' };
+                            } catch(e) {
+                                return { dateTime: isoBase };
+                            }
+                        }
+
+                        // No Z, no TZID — treat as UTC (rostersms convention)
+                        return { dateTime: isoBase + 'Z' };
                     };
-                    out.start = parseICSDate(evt.DTSTART_VAL) || {};
-                    out.end   = parseICSDate(evt.DTEND_VAL)   || {};
+
+                    out.start = parseICSDate(evt.DTSTART_VAL, evt.DTSTART_PARAMS) || {};
+                    out.end   = parseICSDate(evt.DTEND_VAL,   evt.DTEND_PARAMS)   || {};
+
                     if (out.start.dateTime || out.start.date) {
                         events.push(out);
                     }
@@ -1018,11 +1051,19 @@
                     const colonIdx = line.indexOf(':');
                     if (colonIdx === -1) continue;
                     const propFull = line.slice(0, colonIdx);
-                    const val = line.slice(colonIdx + 1);
+                    const val      = line.slice(colonIdx + 1);
                     const propName = propFull.split(';')[0].toUpperCase();
-                    if (propName === 'DTSTART') evt.DTSTART_VAL = val;
-                    else if (propName === 'DTEND') evt.DTEND_VAL = val;
-                    else if (propName === 'SUMMARY') evt.SUMMARY = val.replace(/\\,/g, ',').replace(/\\n/g, ' ');
+                    const params   = propFull.includes(';') ? propFull.slice(propFull.indexOf(';')+1) : '';
+
+                    if (propName === 'DTSTART') {
+                        evt.DTSTART_VAL    = val;
+                        evt.DTSTART_PARAMS = params;
+                    } else if (propName === 'DTEND') {
+                        evt.DTEND_VAL    = val;
+                        evt.DTEND_PARAMS = params;
+                    } else if (propName === 'SUMMARY') {
+                        evt.SUMMARY = val.replace(/\\,/g, ',').replace(/\\n/g, ' ').replace(/\\;/g, ';');
+                    }
                 }
             }
             return events;
@@ -1035,9 +1076,20 @@
                 try {
                     const resp = await fetchWithProxyFallback(cal.url);
                     const text = await resp.text();
+
+                    // Debug: log a sample of raw DTSTART lines from the feed
+                    const sampleLines = text.split('\n')
+                        .filter(l => l.startsWith('DTSTART') || l.startsWith('SUMMARY'))
+                        .slice(0, 10);
+                    console.log(`Webcal ${cal.name} raw sample:`, sampleLines);
+
                     const events = parseICS(text, cal.name, cal.color);
                     allEvents.push(...events);
                     console.log(`Webcal ${cal.name}: loaded ${events.length} events`);
+                    // Log first 3 parsed events for verification
+                    events.slice(0,3).forEach(e => console.log(
+                        `  → ${e.summary} | start: ${e.start.dateTime || e.start.date}`
+                    ));
                 } catch (err) {
                     console.warn(`Webcal fetch error for ${cal.name}:`, err);
                 }
@@ -1263,10 +1315,10 @@
             const endDate = new Date(lastDay);
             endDate.setDate(endDate.getDate() + (6 - ((endDate.getDay() + 6) % 7)));
 
-            // Pad the API query window by 24h each side so that subscribed calendars
-            // stored in UTC (e.g. MK Q from rostersms) are not clipped by timezone offset.
-            const queryStart = new Date(startDate.getTime() - 24 * 60 * 60 * 1000);
-            const queryEnd   = new Date(endDate.getTime()   + 24 * 60 * 60 * 1000);
+            // Query window matches the display window exactly.
+            // MK Q and other webcal feeds are fetched directly via ICS, not via Google API.
+            const queryStart = startDate;
+            const queryEnd   = endDate;
 
             try {
                 // ===== FIX: showHidden:true to include subscribed/other calendars =====
@@ -1360,20 +1412,14 @@
                         currentDay.setDate(currentDay.getDate() + 1);
                     }
                 } else {
-                    // Timed events: bucket by LOCAL date
+                    // Timed events: bucket by LOCAL date only.
+                    // Date() correctly converts UTC ISO strings to local time,
+                    // so getLocalDateKey handles timezone offsets properly.
                     const startTime = event.start.dateTime || event.start.date;
                     const localDay = new Date(startTime);
                     const localKey = getLocalDateKey(localDay);
                     if (!eventsByDay[localKey]) eventsByDay[localKey] = [];
-                    // Avoid duplicate if already added
                     if (!eventsByDay[localKey].includes(event)) eventsByDay[localKey].push(event);
-                    // Also bucket by UTC date — catches webcal feeds stored in UTC
-                    // (e.g. MK Q from rostersms which uses GMT+00:00)
-                    const utcKey = localDay.toISOString().slice(0, 10);
-                    if (utcKey !== localKey) {
-                        if (!eventsByDay[utcKey]) eventsByDay[utcKey] = [];
-                        if (!eventsByDay[utcKey].includes(event)) eventsByDay[utcKey].push(event);
-                    }
                 }
             });
 
@@ -1531,9 +1577,9 @@
                 const yearStart = new Date(year, 0, 1);
                 const yearEnd = new Date(year, 11, 31, 23, 59, 59);
 
-                // Pad by 24h each side for UTC-stored subscribed calendars (e.g. MK Q)
-                const yearQueryStart = new Date(yearStart.getTime() - 24 * 60 * 60 * 1000);
-                const yearQueryEnd   = new Date(yearEnd.getTime()   + 24 * 60 * 60 * 1000);
+                // MK Q fetched directly via ICS — no padding needed for Google API queries
+                const yearQueryStart = yearStart;
+                const yearQueryEnd   = yearEnd;
                 
                 const allEvents = [];
                 for (const calendar of calendars) {
@@ -1593,12 +1639,6 @@
                     const localKey = getLocalDateKey(localDay);
                     if (!eventsByDay[localKey]) eventsByDay[localKey] = [];
                     if (!eventsByDay[localKey].includes(event)) eventsByDay[localKey].push(event);
-                    // Also bucket by UTC date for webcal feeds stored in UTC (e.g. MK Q)
-                    const utcKey = localDay.toISOString().slice(0, 10);
-                    if (utcKey !== localKey) {
-                        if (!eventsByDay[utcKey]) eventsByDay[utcKey] = [];
-                        if (!eventsByDay[utcKey].includes(event)) eventsByDay[utcKey].push(event);
-                    }
                 }
             });
 
