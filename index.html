@@ -1078,7 +1078,6 @@
         async function fetchWebcalEvents(forceRefresh = false) {
             // Return cached result if still fresh
             if (!forceRefresh && webcalCache && (Date.now() - webcalCacheTime < WEBCAL_CACHE_MS)) {
-                console.log(`Webcal: using cached ${webcalCache.length} events`);
                 return webcalCache;
             }
 
@@ -1091,25 +1090,6 @@
                     const events = parseICS(text, cal.name, cal.color);
                     allEvents.push(...events);
                     console.log(`Webcal ${cal.name}: loaded ${events.length} events`);
-
-                    // Debug: find QF670 events and show raw vs parsed vs local date
-                    const lines = text.replace(/\r/g,'').split('\n');
-                    let inEvt = false, summ = '', dtstart = '';
-                    for (const l of lines) {
-                        if (l === 'BEGIN:VEVENT') { inEvt = true; summ=''; dtstart=''; }
-                        else if (l === 'END:VEVENT') {
-                            if (summ.includes('QF670') || summ.includes('QF675')) {
-                                const parsed = events.find(e => e.summary === summ);
-                                const dt = parsed ? (parsed.start.dateTime || parsed.start.date) : '?';
-                                const localDate = dt ? new Date(dt).toLocaleString('en-AU', {timeZone:'Australia/Adelaide'}) : '?';
-                                console.log(`RAW: ${summ} | DTSTART: ${dtstart} | parsed: ${dt} | Adelaide: ${localDate}`);
-                            }
-                            inEvt = false;
-                        } else if (inEvt) {
-                            if (l.startsWith('SUMMARY')) summ = l.slice(l.indexOf(':')+1).trim();
-                            if (l.startsWith('DTSTART')) dtstart = l.trim();
-                        }
-                    }
                 } catch (err) {
                     console.warn(`Webcal fetch error for ${cal.name}:`, err);
                 }
