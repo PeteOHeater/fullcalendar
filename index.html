@@ -118,6 +118,13 @@
             color: #999;
         }
 
+        /* Leading placeholder cells (before day 1, for weekday alignment only) —
+           fully invisible, no border, no fill, just blank grid space. */
+        .day-cell.empty-cell {
+            background: transparent;
+            border: none;
+        }
+
         .day-number {
             font-weight: 600;
             margin-bottom: 8px;
@@ -1334,17 +1341,13 @@
 
             const firstDay = new Date(year, month, 1);
             const lastDay = new Date(year, month + 1, 0);
-            
-            const startDate = new Date(firstDay);
-            startDate.setDate(startDate.getDate() - ((startDate.getDay() + 6) % 7));
-            
-            const endDate = new Date(lastDay);
-            endDate.setDate(endDate.getDate() + (6 - ((endDate.getDay() + 6) % 7)));
 
-            // Query window matches the display window exactly.
-            // MK Q and other webcal feeds are fetched directly via ICS, not via Google API.
-            const queryStart = startDate;
-            const queryEnd   = endDate;
+            // Display/query window is the month itself only — no padding into the
+            // previous/next month. Leading blank cells (to align the 1st under the
+            // right weekday column) are handled inside renderCalendar and don't
+            // need events fetched for them; trailing cells simply aren't rendered.
+            const queryStart = firstDay;
+            const queryEnd   = lastDay;
 
             try {
                 // ===== FIX: showHidden:true to include subscribed/other calendars =====
@@ -1383,8 +1386,7 @@
                     return new Date(aTime) - new Date(bTime);
                 });
 
-                // Render still uses the display window (startDate/endDate), not the padded query window
-                renderCalendar(startDate, endDate, allEvents, month);
+                renderCalendar(firstDay, lastDay, allEvents, month);
             } catch (error) {
                 console.error('Error loading calendar:', error);
                 const status = error && error.status;
@@ -1444,17 +1446,21 @@
                 }
             });
 
+            // Leading blank cells so day 1 lands under its correct weekday column.
+            // These carry no date, no events, and no styling — just empty grid space.
+            const leadingBlanks = (startDate.getDay() + 6) % 7;
+            for (let i = 0; i < leadingBlanks; i++) {
+                const blank = document.createElement('div');
+                blank.className = 'day-cell empty-cell';
+                grid.appendChild(blank);
+            }
+
+            // No trailing blanks are added — the grid simply ends after the last
+            // day of the month, so no days from the next month are ever shown.
             let currentDate = new Date(startDate);
             while (currentDate <= endDate) {
                 const dayCell = document.createElement('div');
                 dayCell.className = 'day-cell';
-
-                if (currentDate.getMonth() !== currentMonthIndex) {
-                    dayCell.classList.add('other-month');
-                    grid.appendChild(dayCell);
-                    currentDate.setDate(currentDate.getDate() + 1);
-                    continue;
-                }
 
                 const bpInfo = getBidPeriodInfo(currentDate);
                 if (bpInfo) {
@@ -1722,24 +1728,21 @@
 
                 const firstDay = new Date(year, month, 1);
                 const lastDay = new Date(year, month + 1, 0);
-                
-                const startDate = new Date(firstDay);
-                startDate.setDate(startDate.getDate() - ((startDate.getDay() + 6) % 7));
-                
-                const endDate = new Date(lastDay);
-                endDate.setDate(endDate.getDate() + (6 - ((endDate.getDay() + 6) % 7)));
 
-                let currentDate = new Date(startDate);
-                while (currentDate <= endDate) {
+                // Leading blank cells so day 1 lands under its correct weekday column.
+                const leadingBlanks = (firstDay.getDay() + 6) % 7;
+                for (let i = 0; i < leadingBlanks; i++) {
+                    const blank = document.createElement('div');
+                    blank.className = 'day-cell empty-cell';
+                    grid.appendChild(blank);
+                }
+
+                // No trailing blanks — grid ends after the last day of the month,
+                // so no days from the next month are ever shown.
+                let currentDate = new Date(firstDay);
+                while (currentDate <= lastDay) {
                     const dayCell = document.createElement('div');
                     dayCell.className = 'day-cell';
-
-                    if (currentDate.getMonth() !== month) {
-                        dayCell.classList.add('other-month');
-                        grid.appendChild(dayCell);
-                        currentDate.setDate(currentDate.getDate() + 1);
-                        continue;
-                    }
 
                     const bpInfo = getBidPeriodInfo(currentDate);
                     if (bpInfo) {
