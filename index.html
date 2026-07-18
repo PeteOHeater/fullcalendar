@@ -1092,7 +1092,25 @@
                     }
                 }
             }
-            return events;
+
+            // The rostersms feed sometimes lists the same trip/duty twice
+            // (e.g. once as a duty-period block and once as a sector block with
+            // identical text), which showed up as every event appearing twice
+            // in the calendar. Collapse exact duplicates — same summary and same
+            // start/end — down to a single event.
+            const seen = new Set();
+            const deduped = [];
+            for (const ev of events) {
+                const key = [
+                    ev.summary,
+                    ev.start.dateTime || ev.start.date || '',
+                    ev.end.dateTime || ev.end.date || ''
+                ].join('||');
+                if (seen.has(key)) continue;
+                seen.add(key);
+                deduped.push(ev);
+            }
+            return deduped;
         }
 
         // Cache for webcal events — avoids re-fetching on every month navigation
@@ -1430,8 +1448,7 @@
                     let currentDay = new Date(startDate);
                     while (currentDay <= endDate) {
                         const dayKey = getLocalDateKey(currentDay);
-                        if (!eventsByDay[dayKey]) eventsByDay[dayKey] = [];
-                        eventsByDay[dayKey].push(event);
+                        addEventToDay(eventsByDay, dayKey, event);
                         currentDay.setDate(currentDay.getDate() + 1);
                     }
                 } else {
@@ -1441,8 +1458,7 @@
                     const startTime = event.start.dateTime || event.start.date;
                     const localDay = new Date(startTime);
                     const localKey = getLocalDateKey(localDay);
-                    if (!eventsByDay[localKey]) eventsByDay[localKey] = [];
-                    if (!eventsByDay[localKey].includes(event)) eventsByDay[localKey].push(event);
+                    addEventToDay(eventsByDay, localKey, event);
                 }
             });
 
@@ -1553,6 +1569,23 @@
             calendar.appendChild(grid);
             document.getElementById('content').innerHTML = '';
             document.getElementById('content').appendChild(calendar);
+        }
+
+        // Adds an event to a day's bucket, skipping it if a duplicate (same
+        // summary + start + end) is already present for that day. Using
+        // content rather than object identity catches duplicates that arise
+        // from merging events across calendars/feeds, not just literal
+        // repeated references.
+        function addEventToDay(eventsByDay, dayKey, event) {
+            if (!eventsByDay[dayKey]) eventsByDay[dayKey] = [];
+            const key = [
+                event.summary,
+                event.start.dateTime || event.start.date || '',
+                event.end.dateTime || event.end.date || ''
+            ].join('||');
+            if (eventsByDay[dayKey].some(e => e.__dedupKey === key)) return;
+            event.__dedupKey = key;
+            eventsByDay[dayKey].push(event);
         }
 
         function escapeHtml(text) {
@@ -1687,16 +1720,14 @@
                     let currentDay = new Date(startDate);
                     while (currentDay <= endDate) {
                         const dayKey = getLocalDateKey(currentDay);
-                        if (!eventsByDay[dayKey]) eventsByDay[dayKey] = [];
-                        eventsByDay[dayKey].push(event);
+                        addEventToDay(eventsByDay, dayKey, event);
                         currentDay.setDate(currentDay.getDate() + 1);
                     }
                 } else {
                     const startTime = event.start.dateTime || event.start.date;
                     const localDay = new Date(startTime);
                     const localKey = getLocalDateKey(localDay);
-                    if (!eventsByDay[localKey]) eventsByDay[localKey] = [];
-                    if (!eventsByDay[localKey].includes(event)) eventsByDay[localKey].push(event);
+                    addEventToDay(eventsByDay, localKey, event);
                 }
             });
 
