@@ -1449,6 +1449,13 @@
                 const dayCell = document.createElement('div');
                 dayCell.className = 'day-cell';
 
+                if (currentDate.getMonth() !== currentMonthIndex) {
+                    dayCell.classList.add('other-month');
+                    grid.appendChild(dayCell);
+                    currentDate.setDate(currentDate.getDate() + 1);
+                    continue;
+                }
+
                 const bpInfo = getBidPeriodInfo(currentDate);
                 if (bpInfo) {
                     dayCell.classList.add(bpInfo.index % 2 === 0 ? 'bp-period-a' : 'bp-period-b');
@@ -1456,10 +1463,6 @@
                     bpMarker.className = 'bp-marker';
                     bpMarker.textContent = 'BP' + bpInfo.number;
                     dayCell.appendChild(bpMarker);
-                }
-                
-                if (currentDate.getMonth() !== currentMonthIndex) {
-                    dayCell.classList.add('other-month');
                 }
 
                 const dayKey = getLocalDateKey(currentDate);
@@ -1731,6 +1734,13 @@
                     const dayCell = document.createElement('div');
                     dayCell.className = 'day-cell';
 
+                    if (currentDate.getMonth() !== month) {
+                        dayCell.classList.add('other-month');
+                        grid.appendChild(dayCell);
+                        currentDate.setDate(currentDate.getDate() + 1);
+                        continue;
+                    }
+
                     const bpInfo = getBidPeriodInfo(currentDate);
                     if (bpInfo) {
                         dayCell.classList.add(bpInfo.index % 2 === 0 ? 'bp-period-a' : 'bp-period-b');
@@ -1738,10 +1748,6 @@
                         bpMarker.className = 'bp-marker';
                         bpMarker.textContent = 'BP' + bpInfo.number;
                         dayCell.appendChild(bpMarker);
-                    }
-                    
-                    if (currentDate.getMonth() !== month) {
-                        dayCell.classList.add('other-month');
                     }
 
                     const dayKey = getLocalDateKey(currentDate);
