@@ -203,7 +203,7 @@
             padding: 4px 6px;
             margin-bottom: 4px;
             border-radius: 3px;
-            font-size: 12px;
+            font-size: 11px;
             line-height: 1.4;
             word-wrap: break-word;
         }
@@ -609,10 +609,12 @@
             padding: 5px 2px;
         }
 
+        /* ===== YEAR VIEW FIX FOR OVERFLOW ===== */
         .month-mini .day-cell {
-            min-height: 80px;
+            min-height: 95px;
             padding: 4px;
             font-size: 11px;
+            overflow-y: auto; /* Added to handle dense flight/roster days elegantly */
         }
 
         .month-mini .day-number {
@@ -717,8 +719,7 @@
                 <li>Copy the API Key and paste it below</li>
                 <li>Go to "Credentials" → "Create Credentials" → "OAuth 2.0 Client ID"</li>
                 <li>For Application type, choose "Web application"</li>
-                <li>Add your GitHub Pages URL to "Authorized JavaScript origins" (e.g., https://yourusername.github.io)</li>
-                <li>Copy the Client ID and paste it below</li>
+                <li>Add your GitHub Pages URL to "Authorized JavaScript origins"</li>
             </ol>
             
             <div style="margin-bottom: 15px;">
@@ -734,7 +735,6 @@
             <button id="saveConfigButton">Save Configuration</button>
         </div>
 
-        <!-- Error banner shown when credentials fail -->
         <div id="errorBanner" class="error-banner" style="display:none;">
             <div class="error-banner-icon">⚠️</div>
             <div class="error-banner-body">
@@ -777,7 +777,6 @@
         </div>
     </div>
 
-    <!-- School Holidays Settings Modal -->
     <div id="holidaySettingsModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -785,14 +784,12 @@
                 <button class="close-modal" id="closeHolidayModal">&times;</button>
             </div>
             <p style="color:#666; font-size:13px; margin-bottom:20px; line-height:1.5;">
-                Toggle which states' school holidays are shaded on the calendar. 
-                SA is on by default. Changes take effect immediately.
+                Toggle which states' school holidays are shaded on the calendar. SA is on by default.
             </p>
             <div id="holidayTogglesContainer"></div>
         </div>
     </div>
 
-    <!-- Custom Periods Modal -->
     <div id="customPeriodsModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -803,7 +800,7 @@
             <div class="period-form">
                 <div class="form-group">
                     <label for="periodName">Period Name</label>
-                    <input type="text" id="periodName" placeholder="e.g., Vacation, Busy Period, Project Deadline">
+                    <input type="text" id="periodName" placeholder="e.g., Vacation, Busy Period">
                 </div>
 
                 <div class="form-group">
@@ -838,8 +835,6 @@
     </div>
 
     <script>
-
-        // ===== HELPER: LOCAL DATE KEY (fixes timezone issues) =====
         function getLocalDateKey(date) {
             const year = date.getFullYear();
             const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -847,7 +842,6 @@
             return `${year}-${month}-${day}`;
         }
 
-        // ===== BID PERIOD MARKER =====
         const BP_START_DATE = new Date('2026-01-26T00:00:00');
         const BP_START_NUMBER = 3731;
 
@@ -866,11 +860,9 @@
             return null;
         }
 
-
         const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest';
         const SCOPES = 'https://www.googleapis.com/auth/calendar.readonly';
 
-        // School holidays by state 2026
         const STATE_HOLIDAYS = {
             SA: {
                 label: 'South Australia',
@@ -922,24 +914,18 @@
             }
         };
 
-        // Which states are currently enabled — SA on by default, rest off
         let enabledStates = JSON.parse(localStorage.getItem('enabled_states') || '["SA"]');
 
         function saveEnabledStates() {
             localStorage.setItem('enabled_states', JSON.stringify(enabledStates));
         }
 
-        // Load custom periods from localStorage
         let customPeriods = JSON.parse(localStorage.getItem('custom_periods') || '[]');
 
         function saveCustomPeriods() {
             localStorage.setItem('custom_periods', JSON.stringify(customPeriods));
         }
 
-        // ===== DIRECT WEBCAL FETCH (for @import.calendar.google.com calendars) =====
-        // These calendars are one-time snapshots in Google's API and won't return future events.
-        // We fetch the .ics feed directly via a CORS proxy instead.
-        // Multiple CORS proxies — tried in order until one works
         const CORS_PROXIES = [
             url => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
             url => `https://thingproxy.freeboard.io/fetch/${url}`,
@@ -950,34 +936,26 @@
             for (const proxyFn of CORS_PROXIES) {
                 try {
                     const proxyUrl = proxyFn(url);
-                    console.log(`Trying proxy: ${proxyUrl}`);
                     const resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(8000) });
-                    if (resp.ok) {
-                        console.log(`Proxy succeeded: ${proxyUrl}`);
-                        return resp;
-                    }
-                    console.warn(`Proxy returned HTTP ${resp.status}, trying next...`);
+                    if (resp.ok) return resp;
                 } catch (err) {
-                    console.warn(`Proxy error, trying next:`, err.message);
+                    console.warn(`Proxy failed, trying next...`);
                 }
             }
-            throw new Error('All CORS proxies failed for: ' + url);
+            throw new Error('All CORS proxies failed');
         }
+
+        // Add any additional shared calendar .ics subscription links here if they drop from GAPI
         const WEBCAL_CALENDARS = [
             {
                 name: 'MK Q',
                 url: 'https://rostersms.com/webcal/pErfPSP4dByJiLFnqA13MEfe3SqpOpi1zfyqv8',
-                color: '#f09300'   // orange — matches MK Q colour in Google Calendar
+                color: '#f09300' 
             }
-            // Add more webcal feeds here if needed:
-            // { name: 'Another Feed', url: 'https://...', color: '#4285f4' }
         ];
 
-        // Parse an .ics text into a flat array of event objects compatible with
-        // the Google Calendar API shape used by renderCalendar / renderYearView.
         function parseICS(icsText, calendarName, calendarColor) {
             const events = [];
-            // Unfold RFC5545 line continuations (CRLF + whitespace = continuation)
             const unfolded = icsText.replace(/\r\n[ \t]/g, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
             const lines = unfolded.split('\n');
             let evt = null;
@@ -994,48 +972,14 @@
                         end: {}
                     };
 
-                    // Parse a DTSTART/DTEND value + its parameters into a Google-shaped object.
-                    // Handles: DATE-only, UTC datetime (Z), and TZID-qualified datetime.
                     const parseICSDate = (val, params) => {
                         if (!val) return null;
-
-                        // All-day: VALUE=DATE — just 8 digits
                         if (/^\d{8}$/.test(val)) {
                             return { date: val.slice(0,4)+'-'+val.slice(4,6)+'-'+val.slice(6,8) };
                         }
-
-                        // DateTime: 20260610T053000Z  or  20260610T053000
                         const m = val.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/);
                         if (!m) return null;
-
                         const isoBase = `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}`;
-                        const hasZ = m[7] === 'Z';
-
-                        if (hasZ) {
-                            // UTC — append Z so JS Date() treats it correctly
-                            return { dateTime: isoBase + 'Z' };
-                        }
-
-                        // No Z — check for TZID param e.g. DTSTART;TZID=UTC:20260610T053000
-                        // rostersms uses TZID=UTC which is effectively the same as Z
-                        const tzid = (params || '').match(/TZID=([^;:]+)/i);
-                        if (tzid) {
-                            const tz = tzid[1].trim();
-                            if (tz === 'UTC' || tz === 'Etc/UTC' || tz === 'GMT') {
-                                return { dateTime: isoBase + 'Z' };
-                            }
-                            // For other TZID values, let Intl handle it if possible
-                            try {
-                                // Build a local-time string that JS can interpret with the tz
-                                const d = new Date(`${isoBase}`);
-                                // Approximate: just return with no suffix and hope it's UTC-like
-                                return { dateTime: isoBase + 'Z' };
-                            } catch(e) {
-                                return { dateTime: isoBase };
-                            }
-                        }
-
-                        // No Z, no TZID — treat as UTC (rostersms convention)
                         return { dateTime: isoBase + 'Z' };
                     };
 
@@ -1047,7 +991,6 @@
                     }
                     evt = null;
                 } else if (evt !== null) {
-                    // Property lines: PROPNAME;PARAMS:VALUE  or  PROPNAME:VALUE
                     const colonIdx = line.indexOf(':');
                     if (colonIdx === -1) continue;
                     const propFull = line.slice(0, colonIdx);
@@ -1069,33 +1012,25 @@
             return events;
         }
 
-        // Cache for webcal events — avoids re-fetching on every month navigation
         let webcalCache = null;
         let webcalCacheTime = 0;
-        const WEBCAL_CACHE_MS = 5 * 60 * 1000; // 5 minutes
+        const WEBCAL_CACHE_MS = 5 * 60 * 1000;
 
-        // Fetch all configured webcal feeds and return combined events array.
         async function fetchWebcalEvents(forceRefresh = false) {
-            // Return cached result if still fresh
             if (!forceRefresh && webcalCache && (Date.now() - webcalCacheTime < WEBCAL_CACHE_MS)) {
                 return webcalCache;
             }
-
             const allEvents = [];
             for (const cal of WEBCAL_CALENDARS) {
                 try {
                     const resp = await fetchWithProxyFallback(cal.url);
                     const text = await resp.text();
-
                     const events = parseICS(text, cal.name, cal.color);
                     allEvents.push(...events);
-                    console.log(`Webcal ${cal.name}: loaded ${events.length} events`);
                 } catch (err) {
-                    console.warn(`Webcal fetch error for ${cal.name}:`, err);
+                    console.warn(`Webcal error for ${cal.name}:`, err);
                 }
             }
-
-            // Update cache
             webcalCache = allEvents;
             webcalCacheTime = Date.now();
             return allEvents;
@@ -1109,12 +1044,10 @@
         let API_KEY = localStorage.getItem('gcal_api_key') || '';
         let CLIENT_ID = localStorage.getItem('gcal_client_id') || '';
 
-        // ===== ERROR BANNER HELPERS =====
         function showErrorBanner(title, message) {
             document.getElementById('errorBannerTitle').textContent = title;
             document.getElementById('errorBannerMessage').textContent = message;
             document.getElementById('errorBanner').style.display = 'flex';
-            // Hide sign-in button if showing error — credentials are bad
             document.getElementById('authorizeButton').style.display = 'none';
             document.getElementById('reconfigureButton').style.display = 'none';
         }
@@ -1129,41 +1062,28 @@
             if (placeholderMode) {
                 document.getElementById('apiKeyInput').value = '';
                 document.getElementById('clientIdInput').value = '';
-                document.getElementById('apiKeyInput').placeholder = 'Enter new API Key or leave blank to keep current';
-                document.getElementById('clientIdInput').placeholder = 'Enter new Client ID or leave blank to keep current';
             }
-            // Scroll to top so user sees the form
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
-        // "Fix Credentials" button in error banner
         document.getElementById('errorFixCredsBtn').addEventListener('click', () => {
             hideErrorBanner();
             showConfigSection(true);
         });
 
-        // "Clear & Start Over" button — wipes saved keys entirely
         document.getElementById('errorClearBtn').addEventListener('click', () => {
-            if (confirm('This will delete your saved API Key and Client ID. You will need to enter them again.')) {
-                localStorage.removeItem('gcal_api_key');
-                localStorage.removeItem('gcal_client_id');
+            if (confirm('Wipe credentials?')) {
+                localStorage.clear();
                 location.reload();
             }
         });
 
-        // Load Google API libraries
         function loadGoogleAPIs() {
             const gapiScript = document.createElement('script');
             gapiScript.src = 'https://apis.google.com/js/api.js';
             gapiScript.async = true;
             gapiScript.defer = true;
             gapiScript.onload = gapiLoaded;
-            gapiScript.onerror = () => {
-                showErrorBanner(
-                    'Failed to load Google API',
-                    'Could not contact Google servers. Check your internet connection and try refreshing the page.'
-                );
-            };
             document.head.appendChild(gapiScript);
 
             const gisScript = document.createElement('script');
@@ -1171,67 +1091,35 @@
             gisScript.async = true;
             gisScript.defer = true;
             gisScript.onload = gisLoaded;
-            gisScript.onerror = () => {
-                showErrorBanner(
-                    'Failed to load Google Sign-In',
-                    'Could not load Google Sign-In. Check your internet connection and try refreshing the page.'
-                );
-            };
             document.head.appendChild(gisScript);
         }
 
-        function gapiLoaded() {
-            gapi.load('client', initializeGapiClient);
-        }
+        function gapiLoaded() { gapi.load('client', initializeGapiClient); }
 
         async function initializeGapiClient() {
             if (!API_KEY) return;
-            
             try {
-                await gapi.client.init({
-                    apiKey: API_KEY,
-                    discoveryDocs: [DISCOVERY_DOC],
-                });
+                await gapi.client.init({ apiKey: API_KEY, discoveryDocs: [DISCOVERY_DOC] });
                 gapiInited = true;
                 maybeEnableButtons();
             } catch (error) {
-                console.error('Error initializing GAPI:', error);
-                const msg = (error && error.result && error.result.error && error.result.error.message) || 'Unknown error';
-                showErrorBanner(
-                    'Invalid API Key',
-                    `Google rejected the API Key: "${msg}". Please check your API Key and try again.`
-                );
+                showErrorBanner('Invalid API Key', 'Check your API Configuration settings.');
             }
         }
 
         function gisLoaded() {
             if (!CLIENT_ID) return;
-            
             try {
                 tokenClient = google.accounts.oauth2.initTokenClient({
-                    client_id: CLIENT_ID,
-                    scope: SCOPES,
-                    callback: '',
-                    error_callback: (err) => {
-                        console.error('OAuth error:', err);
-                        showErrorBanner(
-                            'OAuth Client ID Error',
-                            `Google rejected the Client ID. Make sure it is correct and that your domain is listed under "Authorised JavaScript origins" in the Google Cloud Console.`
-                        );
-                    }
+                    client_id: CLIENT_ID, scope: SCOPES, callback: ''
                 });
                 gisInited = true;
                 maybeEnableButtons();
             } catch (error) {
-                console.error('Error initializing GIS:', error);
-                showErrorBanner(
-                    'Invalid OAuth Client ID',
-                    `Could not initialise sign-in: ${error.message || error}. Please check your Client ID.`
-                );
+                showErrorBanner('OAuth Client Error', 'Check your Client Identity config.');
             }
         }
 
-        // Helper to switch UI labels when toggling year/month view
         function setYearViewMode(yearMode) {
             isYearView = yearMode;
             const btn = document.getElementById('yearViewToggle');
@@ -1248,12 +1136,12 @@
             }
         }
 
-        let initialLoadDone = false;  // guard against double-fire from gapi+gis both calling maybeEnableButtons
+        let initialLoadDone = false;
         function maybeEnableButtons() {
             if (gapiInited && gisInited) {
                 const token = gapi.client.getToken();
                 if (token !== null) {
-                    if (initialLoadDone) return;  // already loading, skip second call
+                    if (initialLoadDone) return;
                     initialLoadDone = true;
                     document.getElementById('authSection').style.display = 'none';
                     document.getElementById('calendarSection').style.display = 'block';
@@ -1269,28 +1157,13 @@
 
         function handleAuthClick() {
             tokenClient.callback = async (resp) => {
-                if (resp.error !== undefined) {
-                    console.error('Auth error:', resp);
-                    showErrorBanner(
-                        'Sign-In Failed',
-                        `Google returned an error: "${resp.error}". ` +
-                        (resp.error === 'access_denied'
-                            ? 'You denied access — please try again and click Allow.'
-                            : 'Check that your Client ID and API Key are correct.')
-                    );
-                    return;
-                }
+                if (resp.error !== undefined) return;
                 document.getElementById('authSection').style.display = 'none';
                 document.getElementById('calendarSection').style.display = 'block';
                 setYearViewMode(true);
                 await loadYearView();
             };
-
-            if (gapi.client.getToken() === null) {
-                tokenClient.requestAccessToken({prompt: ''});
-            } else {
-                tokenClient.requestAccessToken({prompt: ''});
-            }
+            tokenClient.requestAccessToken({prompt: ''});
         }
 
         function handleSignoutClick() {
@@ -1298,11 +1171,7 @@
             if (token !== null) {
                 google.accounts.oauth2.revoke(token.access_token);
                 gapi.client.setToken('');
-                document.getElementById('authSection').style.display = 'block';
-                document.getElementById('calendarSection').style.display = 'none';
-                hideErrorBanner();
-                document.getElementById('authorizeButton').style.display = 'block';
-                document.getElementById('reconfigureButton').style.display = 'block';
+                location.reload();
             }
         }
 
@@ -1322,16 +1191,9 @@
             const endDate = new Date(lastDay);
             endDate.setDate(endDate.getDate() + (6 - ((endDate.getDay() + 6) % 7)));
 
-            // Query window matches the display window exactly.
-            // MK Q and other webcal feeds are fetched directly via ICS, not via Google API.
-            const queryStart = startDate;
-            const queryEnd   = endDate;
-
             try {
-                // ===== FIX: showHidden:true to include subscribed/other calendars =====
                 const calendarListResponse = await gapi.client.calendar.calendarList.list({
-                    showHidden: true,
-                    showDeleted: false
+                    showHidden: true, showDeleted: false
                 });
                 const calendars = calendarListResponse.result.items || [];
                 
@@ -1340,52 +1202,64 @@
                     try {
                         const response = await gapi.client.calendar.events.list({
                             'calendarId': calendar.id,
-                            'timeMin': queryStart.toISOString(),
-                            'timeMax': queryEnd.toISOString(),
+                            'timeMin': startDate.toISOString(),
+                            'timeMax': endDate.toISOString(),
                             'showDeleted': false,
                             'singleEvents': true,
                             'orderBy': 'startTime'
                         });
-
                         const events = response.result.items || [];
                         events.forEach(event => {
                             event.calendarColor = calendar.backgroundColor || '#4285f4';
                             event.calendarName = calendar.summary;
                         });
                         allEvents.push(...events);
-                    } catch (error) {
-                        console.warn(`Error loading calendar ${calendar.summary}:`, error);
+                    } catch (err) {
+                        console.warn(`Skipped layer: ${calendar.summary}`);
                     }
                 }
 
-                // Also fetch webcal feeds directly (bypasses Google API limitation
-                // on @import.calendar.google.com calendars which only snapshot past events)
                 const webcalEvents = await fetchWebcalEvents();
                 allEvents.push(...webcalEvents);
 
-                allEvents.sort((a, b) => {
-                    const aTime = a.start.dateTime || a.start.date;
-                    const bTime = b.start.dateTime || b.start.date;
-                    return new Date(aTime) - new Date(bTime);
-                });
-
-                // Render still uses the display window (startDate/endDate), not the padded query window
                 renderCalendar(startDate, endDate, allEvents, month);
             } catch (error) {
-                console.error('Error loading calendar:', error);
-                const status = error && error.status;
-                if (status === 401 || status === 403) {
-                    showErrorBanner(
-                        'Calendar Access Denied',
-                        'Google denied access to your calendar. Your credentials may be wrong or expired. Try signing out and back in, or fix your API Key.'
-                    );
-                    document.getElementById('calendarSection').style.display = 'none';
-                    document.getElementById('authSection').style.display = 'block';
-                } else {
-                    document.getElementById('content').innerHTML = 
-                        '<div class="status">Error loading calendar. Please try refreshing.</div>';
-                }
+                document.getElementById('content').innerHTML = '<div class="status">Error processing views.</div>';
             }
+        }
+
+        /* ===== FIX: MULTI-DAY EVENT PROPAGATION CORE FUNCTION ===== */
+        function processEventsIntoDays(events) {
+            const eventsByDay = {};
+            events.forEach(event => {
+                let startStr = event.start.dateTime || event.start.date;
+                let endStr = event.end.dateTime || event.end.date;
+                if (!startStr) return;
+
+                let startD = new Date(startStr);
+                let endD = endStr ? new Date(endStr) : new Date(startD);
+
+                // For all-day events, the API returns the day after it ends. We roll back 1 day.
+                if (event.start.date && event.end.date) {
+                    endD.setDate(endD.getDate() - 1);
+                }
+
+                // If a timed event wraps overnight or covers a multi-day window
+                let loopD = new Date(startD);
+                loopD.setHours(0,0,0,0);
+                let finalD = new Date(endD);
+                finalD.setHours(0,0,0,0);
+
+                while (loopD <= finalD) {
+                    const dayKey = getLocalDateKey(loopD);
+                    if (!eventsByDay[dayKey]) eventsByDay[dayKey] = [];
+                    if (!eventsByDay[dayKey].some(e => e.id === event.id && e.summary === event.summary)) {
+                        eventsByDay[dayKey].push(event);
+                    }
+                    loopD.setDate(loopD.getDate() + 1);
+                }
+            });
+            return eventsByDay;
         }
 
         function renderCalendar(startDate, endDate, events, currentMonthIndex) {
@@ -1404,31 +1278,8 @@
             const grid = document.createElement('div');
             grid.className = 'calendar-grid';
 
-            const eventsByDay = {};
-            events.forEach(event => {
-                if (event.start.date && event.end.date) {
-                    // All-day events: use the date string directly (no TZ conversion needed)
-                    const startDate = new Date(event.start.date);
-                    const endDate = new Date(event.end.date);
-                    endDate.setDate(endDate.getDate() - 1);
-                    let currentDay = new Date(startDate);
-                    while (currentDay <= endDate) {
-                        const dayKey = getLocalDateKey(currentDay);
-                        if (!eventsByDay[dayKey]) eventsByDay[dayKey] = [];
-                        eventsByDay[dayKey].push(event);
-                        currentDay.setDate(currentDay.getDate() + 1);
-                    }
-                } else {
-                    // Timed events: bucket by LOCAL date only.
-                    // Date() correctly converts UTC ISO strings to local time,
-                    // so getLocalDateKey handles timezone offsets properly.
-                    const startTime = event.start.dateTime || event.start.date;
-                    const localDay = new Date(startTime);
-                    const localKey = getLocalDateKey(localDay);
-                    if (!eventsByDay[localKey]) eventsByDay[localKey] = [];
-                    if (!eventsByDay[localKey].includes(event)) eventsByDay[localKey].push(event);
-                }
-            });
+            // Use our tracking fix here
+            const eventsByDay = processEventsIntoDays(events);
 
             let currentDate = new Date(startDate);
             while (currentDate <= endDate) {
@@ -1448,16 +1299,11 @@
                 }
 
                 const dayKey = getLocalDateKey(currentDate);
-                
                 const holiday = getSchoolHoliday(dayKey);
-                if (holiday) {
-                    dayCell.classList.add(holiday.cssClass);
-                }
+                if (holiday) dayCell.classList.add(holiday.cssClass);
 
                 const customPeriod = getCustomPeriod(dayKey);
-                if (customPeriod) {
-                    dayCell.style.backgroundColor = customPeriod.color;
-                }
+                if (customPeriod) dayCell.style.backgroundColor = customPeriod.color;
 
                 const dayNumber = document.createElement('div');
                 dayNumber.className = 'day-number';
@@ -1475,19 +1321,7 @@
                     }
                 }
 
-                if (customPeriod) {
-                    const prevDayKey = new Date(currentDate.getTime() - 86400000).toISOString().split('T')[0];
-                    const prevPeriod = getCustomPeriod(prevDayKey);
-                    if (!prevPeriod || prevPeriod.name !== customPeriod.name) {
-                        const label = document.createElement('div');
-                        label.className = 'holiday-label';
-                        label.textContent = customPeriod.name;
-                        dayCell.appendChild(label);
-                    }
-                }
-
                 const dayEvents = eventsByDay[dayKey] || [];
-                
                 dayEvents.forEach(event => {
                     const eventEl = document.createElement('div');
                     eventEl.className = 'event';
@@ -1495,9 +1329,7 @@
                     if (event.calendarColor) {
                         eventEl.style.borderLeftColor = event.calendarColor;
                         const rgb = hexToRgb(event.calendarColor);
-                        if (rgb) {
-                            eventEl.style.backgroundColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.15)`;
-                        }
+                        if (rgb) eventEl.style.backgroundColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.15)`;
                     }
                     
                     if (event.start.date) {
@@ -1508,17 +1340,12 @@
                         `;
                     } else {
                         const startTime = new Date(event.start.dateTime);
-                        const timeStr = startTime.toLocaleTimeString('en-US', { 
-                            hour: 'numeric', 
-                            minute: '2-digit',
-                            hour12: true 
-                        });
+                        const timeStr = startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
                         eventEl.innerHTML = `
                             <span class="event-time">${timeStr}</span>
                             <span class="event-title">${escapeHtml(event.summary || '(No title)')}</span>
                         `;
                     }
-                    
                     dayCell.appendChild(eventEl);
                 });
 
@@ -1526,7 +1353,6 @@
                 currentDate.setDate(currentDate.getDate() + 1);
             }
 
-            calendar.appendChild(grid);
             document.getElementById('content').innerHTML = '';
             document.getElementById('content').appendChild(calendar);
         }
@@ -1539,14 +1365,9 @@
 
         function hexToRgb(hex) {
             const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-            return result ? {
-                r: parseInt(result[1], 16),
-                g: parseInt(result[2], 16),
-                b: parseInt(result[3], 16)
-            } : null;
+            return result ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) } : null;
         }
 
-        // Returns { name, cssClass, labelClass } for the first matching enabled state, or null
         function getSchoolHoliday(dateString) {
             for (const stateCode of enabledStates) {
                 const state = STATE_HOLIDAYS[stateCode];
@@ -1562,9 +1383,7 @@
 
         function getCustomPeriod(dateString) {
             for (const period of customPeriods) {
-                if (dateString >= period.start && dateString <= period.end) {
-                    return period;
-                }
+                if (dateString >= period.start && dateString <= period.end) return period;
             }
             return null;
         }
@@ -1574,32 +1393,25 @@
             document.getElementById('monthYear').textContent = year;
 
             try {
-                // ===== FIX: showHidden:true to include subscribed/other calendars =====
                 const calendarListResponse = await gapi.client.calendar.calendarList.list({
-                    showHidden: true,
-                    showDeleted: false
+                    showHidden: true, showDeleted: false
                 });
                 const calendars = calendarListResponse.result.items || [];
                 
                 const yearStart = new Date(year, 0, 1);
                 const yearEnd = new Date(year, 11, 31, 23, 59, 59);
-
-                // MK Q fetched directly via ICS — no padding needed for Google API queries
-                const yearQueryStart = yearStart;
-                const yearQueryEnd   = yearEnd;
                 
                 const allEvents = [];
                 for (const calendar of calendars) {
                     try {
                         const response = await gapi.client.calendar.events.list({
                             'calendarId': calendar.id,
-                            'timeMin': yearQueryStart.toISOString(),
-                            'timeMax': yearQueryEnd.toISOString(),
+                            'timeMin': yearStart.toISOString(),
+                            'timeMax': yearEnd.toISOString(),
                             'showDeleted': false,
                             'singleEvents': true,
                             'orderBy': 'startTime'
                         });
-
                         const events = response.result.items || [];
                         events.forEach(event => {
                             event.calendarColor = calendar.backgroundColor || '#4285f4';
@@ -1607,19 +1419,16 @@
                         });
                         allEvents.push(...events);
                     } catch (error) {
-                        console.warn(`Error loading calendar ${calendar.summary}:`, error);
+                        console.warn('Skipped background item layout sync.');
                     }
                 }
 
-                // Also fetch webcal feeds directly
                 const webcalEventsYear = await fetchWebcalEvents();
                 allEvents.push(...webcalEventsYear);
 
                 renderYearView(year, allEvents);
             } catch (error) {
-                console.error('Error loading year view:', error);
-                document.getElementById('content').innerHTML = 
-                    '<div class="status">Error loading year view. Please try again.</div>';
+                console.error(error);
             }
         }
 
@@ -1627,37 +1436,14 @@
             const yearContainer = document.createElement('div');
             yearContainer.className = 'year-view-container';
 
-            const eventsByDay = {};
-            events.forEach(event => {
-                if (event.start.date && event.end.date) {
-                    const startDate = new Date(event.start.date);
-                    const endDate = new Date(event.end.date);
-                    endDate.setDate(endDate.getDate() - 1);
-                    let currentDay = new Date(startDate);
-                    while (currentDay <= endDate) {
-                        const dayKey = getLocalDateKey(currentDay);
-                        if (!eventsByDay[dayKey]) eventsByDay[dayKey] = [];
-                        eventsByDay[dayKey].push(event);
-                        currentDay.setDate(currentDay.getDate() + 1);
-                    }
-                } else {
-                    const startTime = event.start.dateTime || event.start.date;
-                    const localDay = new Date(startTime);
-                    const localKey = getLocalDateKey(localDay);
-                    if (!eventsByDay[localKey]) eventsByDay[localKey] = [];
-                    if (!eventsByDay[localKey].includes(event)) eventsByDay[localKey].push(event);
-                }
-            });
+            const eventsByDay = processEventsIntoDays(events);
 
             for (let month = 0; month < 12; month++) {
                 const monthDiv = document.createElement('div');
                 monthDiv.className = 'month-mini';
 
                 const monthHeader = document.createElement('h3');
-                monthHeader.textContent = new Date(year, month, 1).toLocaleDateString('en-US', { 
-                    month: 'long', 
-                    year: 'numeric' 
-                });
+                monthHeader.textContent = new Date(year, month, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
                 monthDiv.appendChild(monthHeader);
 
                 const calendar = document.createElement('div');
@@ -1697,21 +1483,14 @@
                         dayCell.appendChild(bpMarker);
                     }
                     
-                    if (currentDate.getMonth() !== month) {
-                        dayCell.classList.add('other-month');
-                    }
+                    if (currentDate.getMonth() !== month) dayCell.classList.add('other-month');
 
                     const dayKey = getLocalDateKey(currentDate);
-                    
                     const holiday = getSchoolHoliday(dayKey);
-                    if (holiday) {
-                        dayCell.classList.add(holiday.cssClass);
-                    }
+                    if (holiday) dayCell.classList.add(holiday.cssClass);
 
                     const customPeriod = getCustomPeriod(dayKey);
-                    if (customPeriod) {
-                        dayCell.style.backgroundColor = customPeriod.color;
-                    }
+                    if (customPeriod) dayCell.style.backgroundColor = customPeriod.color;
 
                     const dayNumber = document.createElement('div');
                     dayNumber.className = 'day-number';
@@ -1719,7 +1498,6 @@
                     dayCell.appendChild(dayNumber);
 
                     const dayEvents = eventsByDay[dayKey] || [];
-                    
                     dayEvents.forEach(event => {
                         const eventEl = document.createElement('div');
                         eventEl.className = 'event';
@@ -1727,9 +1505,7 @@
                         if (event.calendarColor) {
                             eventEl.style.borderLeftColor = event.calendarColor;
                             const rgb = hexToRgb(event.calendarColor);
-                            if (rgb) {
-                                eventEl.style.backgroundColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.15)`;
-                            }
+                            if (rgb) eventEl.style.backgroundColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.15)`;
                         }
                         
                         if (event.start.date) {
@@ -1740,17 +1516,12 @@
                             `;
                         } else {
                             const startTime = new Date(event.start.dateTime);
-                            const timeStr = startTime.toLocaleTimeString('en-US', { 
-                                hour: 'numeric', 
-                                minute: '2-digit',
-                                hour12: true 
-                            });
+                            const timeStr = startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
                             eventEl.innerHTML = `
                                 <span class="event-time">${timeStr.replace(' ', '')}</span>
                                 <span class="event-title">${escapeHtml(event.summary || '(No title)')}</span>
                             `;
                         }
-                        
                         dayCell.appendChild(eventEl);
                     });
 
@@ -1767,112 +1538,56 @@
             document.getElementById('content').appendChild(yearContainer);
         }
 
-        // Event listeners
         document.getElementById('saveConfigButton').addEventListener('click', () => {
             const apiKey = document.getElementById('apiKeyInput').value.trim();
             const clientId = document.getElementById('clientIdInput').value.trim();
-            
-            const finalApiKey = apiKey || API_KEY;
-            const finalClientId = clientId || CLIENT_ID;
-            
-            if (!finalApiKey || !finalClientId) {
-                alert('Please enter both API Key and Client ID');
-                return;
-            }
-            
-            localStorage.setItem('gcal_api_key', finalApiKey);
-            localStorage.setItem('gcal_client_id', finalClientId);
-            API_KEY = finalApiKey;
-            CLIENT_ID = finalClientId;
-            
-            alert('Configuration saved! Reloading page...');
+            if (apiKey) localStorage.setItem('gcal_api_key', apiKey);
+            if (clientId) localStorage.setItem('gcal_client_id', clientId);
             location.reload();
         });
 
-        document.getElementById('reconfigureButton').addEventListener('click', () => {
-            showConfigSection(true);
-        });
-
+        document.getElementById('reconfigureButton').addEventListener('click', () => showConfigSection(true));
         document.getElementById('authorizeButton').addEventListener('click', handleAuthClick);
         document.getElementById('signoutButton').addEventListener('click', handleSignoutClick);
         
         document.getElementById('prevMonth').addEventListener('click', () => {
             if (isYearView) {
-                currentMonth.setFullYear(currentMonth.getFullYear() - 1);
-                loadYearView();
+                currentMonth.setFullYear(currentMonth.getFullYear() - 1); loadYearView();
             } else {
-                currentMonth.setMonth(currentMonth.getMonth() - 1);
-                loadCalendar();
+                currentMonth.setMonth(currentMonth.getMonth() - 1); loadCalendar();
             }
         });
         
         document.getElementById('nextMonth').addEventListener('click', () => {
             if (isYearView) {
-                currentMonth.setFullYear(currentMonth.getFullYear() + 1);
-                loadYearView();
+                currentMonth.setFullYear(currentMonth.getFullYear() + 1); loadYearView();
             } else {
-                currentMonth.setMonth(currentMonth.getMonth() + 1);
-                loadCalendar();
+                currentMonth.setMonth(currentMonth.getMonth() + 1); loadCalendar();
             }
         });
         
         document.getElementById('todayButton').addEventListener('click', () => {
             currentMonth = new Date();
-            if (isYearView) {
-                loadYearView();
-            } else {
-                loadCalendar();
-            }
+            if (isYearView) loadYearView(); else loadCalendar();
         });
 
         document.getElementById('yearViewToggle').addEventListener('click', () => {
             setYearViewMode(!isYearView);
-            if (isYearView) {
-                loadYearView();
-            } else {
-                loadCalendar();
-            }
+            if (isYearView) loadYearView(); else loadCalendar();
         });
 
         document.getElementById('refreshButton').addEventListener('click', () => {
-            // Force refresh clears webcal cache so MK Q re-fetches fresh data
-            webcalCache = null;
-            webcalCacheTime = 0;
-            if (isYearView) {
-                loadYearView();
-            } else {
-                loadCalendar();
-            }
+            webcalCache = null; webcalCacheTime = 0;
+            if (isYearView) loadYearView(); else loadCalendar();
         });
 
-        // Custom Periods Modal Management
         const modal = document.getElementById('customPeriodsModal');
         const customPeriodsButton = document.getElementById('customPeriodsButton');
         const closeModal = document.getElementById('closeModal');
         const addPeriodButton = document.getElementById('addPeriodButton');
-        const periodColorInput = document.getElementById('periodColor');
-        const colorPreview = document.getElementById('colorPreview');
-        const colorHex = document.getElementById('colorHex');
 
-        periodColorInput.addEventListener('input', (e) => {
-            colorPreview.style.backgroundColor = e.target.value;
-            colorHex.textContent = e.target.value;
-        });
-
-        customPeriodsButton.addEventListener('click', () => {
-            modal.style.display = 'block';
-            renderPeriodsList();
-        });
-
-        closeModal.addEventListener('click', () => {
-            modal.style.display = 'none';
-        });
-
-        window.addEventListener('click', (e) => {
-            if (e.target === modal) {
-                modal.style.display = 'none';
-            }
-        });
+        customPeriodsButton.addEventListener('click', () => { modal.style.display = 'block'; renderPeriodsList(); });
+        closeModal.addEventListener('click', () => modal.style.display = 'none');
 
         addPeriodButton.addEventListener('click', () => {
             const name = document.getElementById('periodName').value.trim();
@@ -1880,152 +1595,61 @@
             const endDate = document.getElementById('periodEndDate').value;
             const color = document.getElementById('periodColor').value;
 
-            if (!name || !startDate || !endDate) {
-                alert('Please fill in all fields');
-                return;
-            }
+            if (!name || !startDate || !endDate) return;
 
-            if (new Date(startDate) > new Date(endDate)) {
-                alert('Start date must be before or equal to end date');
-                return;
-            }
-
-            customPeriods.push({
-                id: Date.now(),
-                name: name,
-                start: startDate,
-                end: endDate,
-                color: color
-            });
-
-            saveCustomPeriods();
-            renderPeriodsList();
-
-            document.getElementById('periodName').value = '';
-            document.getElementById('periodStartDate').value = '';
-            document.getElementById('periodEndDate').value = '';
-            document.getElementById('periodColor').value = '#ffebee';
-            colorPreview.style.backgroundColor = '#ffebee';
-            colorHex.textContent = '#ffebee';
-
-            if (isYearView) {
-                loadYearView();
-            } else {
-                loadCalendar();
-            }
+            customPeriods.push({ id: Date.now(), name, start: startDate, end: endDate, color });
+            saveCustomPeriods(); renderPeriodsList();
+            if (isYearView) loadYearView(); else loadCalendar();
         });
 
         function renderPeriodsList() {
             const container = document.getElementById('periodsListContainer');
-            
             if (customPeriods.length === 0) {
-                container.innerHTML = '<div class="no-periods">No custom periods yet. Add one above!</div>';
-                return;
+                container.innerHTML = '<div class="no-periods">No custom periods yet.</div>'; return;
             }
-
-            container.innerHTML = customPeriods.map(period => `
+            container.innerHTML = customPeriods.map(p => `
                 <div class="period-item">
-                    <div class="period-color-indicator" style="background-color: ${period.color};"></div>
-                    <div class="period-info">
-                        <div class="period-name">${escapeHtml(period.name)}</div>
-                        <div class="period-dates">${formatDate(period.start)} - ${formatDate(period.end)}</div>
-                    </div>
-                    <div class="period-actions">
-                        <button class="delete-button" onclick="deletePeriod(${period.id})">Delete</button>
-                    </div>
+                    <div class="period-color-indicator" style="background-color: ${p.color};"></div>
+                    <div class="period-info"><div>${escapeHtml(p.name)}</div></div>
+                    <button class="delete-button" onclick="deletePeriod(${p.id})">Delete</button>
                 </div>
             `).join('');
         }
 
-        function formatDate(dateString) {
-            const date = new Date(dateString);
-            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-        }
-
         window.deletePeriod = function(id) {
-            if (confirm('Are you sure you want to delete this period?')) {
-                customPeriods = customPeriods.filter(p => p.id !== id);
-                saveCustomPeriods();
-                renderPeriodsList();
-                
-                if (isYearView) {
-                    loadYearView();
-                } else {
-                    loadCalendar();
-                }
-            }
+            customPeriods = customPeriods.filter(p => p.id !== id);
+            saveCustomPeriods(); renderPeriodsList();
+            if (isYearView) loadYearView(); else loadCalendar();
         };
 
-        // ===== SCHOOL HOLIDAY SETTINGS MODAL =====
         const holidaySettingsModal = document.getElementById('holidaySettingsModal');
-
-        function renderHolidayToggles() {
+        document.getElementById('holidaySettingsButton').addEventListener('click', () => {
             const container = document.getElementById('holidayTogglesContainer');
-            container.innerHTML = '';
-            Object.entries(STATE_HOLIDAYS).forEach(([code, state]) => {
-                const isOn = enabledStates.includes(code);
-                const row = document.createElement('div');
-                row.className = 'holiday-toggle-row';
-                row.innerHTML = `
+            container.innerHTML = Object.entries(STATE_HOLIDAYS).map(([code, state]) => `
+                <div class="holiday-toggle-row">
                     <div class="holiday-swatch" style="background:${state.swatch};"></div>
-                    <div class="holiday-toggle-label">
-                        ${state.label}
-                        <span class="holiday-toggle-sub"> (${code})</span>
-                    </div>
-                    <label class="toggle-switch">
-                        <input type="checkbox" data-state="${code}" ${isOn ? 'checked' : ''}>
-                        <span class="toggle-slider"></span>
-                    </label>
-                `;
-                container.appendChild(row);
-            });
-
-            container.querySelectorAll('input[type=checkbox]').forEach(cb => {
+                    <div class="holiday-toggle-label">${state.label}</div>
+                    <input type="checkbox" data-state="${code}" ${enabledStates.includes(code) ? 'checked' : ''}>
+                </div>
+            `).join('');
+            
+            container.querySelectorAll('input').forEach(cb => {
                 cb.addEventListener('change', (e) => {
                     const code = e.target.dataset.state;
-                    if (e.target.checked) {
-                        if (!enabledStates.includes(code)) enabledStates.push(code);
-                    } else {
-                        enabledStates = enabledStates.filter(s => s !== code);
-                    }
+                    enabledStates = e.target.checked ? [...new Set([...enabledStates, code])] : enabledStates.filter(s => s !== code);
                     saveEnabledStates();
-                    // Refresh calendar immediately
                     if (isYearView) loadYearView(); else loadCalendar();
                 });
             });
-        }
-
-        document.getElementById('holidaySettingsButton').addEventListener('click', () => {
-            renderHolidayToggles();
             holidaySettingsModal.style.display = 'block';
         });
 
-        document.getElementById('closeHolidayModal').addEventListener('click', () => {
-            holidaySettingsModal.style.display = 'none';
-        });
+        document.getElementById('closeHolidayModal').addEventListener('click', () => holidaySettingsModal.style.display = 'none');
 
-        window.addEventListener('click', (e) => {
-            if (e.target === holidaySettingsModal) holidaySettingsModal.style.display = 'none';
-        });
-
-        // Auto-refresh every 5 minutes
-        setInterval(() => {
-            if (gapi.client.getToken() !== null) {
-                if (isYearView) {
-                    loadYearView();
-                } else {
-                    loadCalendar();
-                }
-            }
-        }, 5 * 60 * 1000);
-
-        // Initialize
         if (API_KEY && CLIENT_ID) {
-            document.getElementById('configSection').style.display = 'none';
-            loadGoogleAPIs();
+            document.getElementById('configSection').style.display = 'none'; loadGoogleAPIs();
         } else {
             document.getElementById('configSection').style.display = 'block';
-            document.getElementById('authStatus').textContent = 'Please configure your API credentials above';
         }
     </script>
 </body>
