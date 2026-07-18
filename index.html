@@ -691,13 +691,38 @@
         .bp-marker {
             position: absolute;
             bottom: 5px;
-            right: 5px;
-            font-size: 42px;
+            right: 6px;
+            font-size: 30px;
             font-weight: 700;
-            color: rgba(0, 0, 0, 0.08);
+            color: rgba(0, 0, 0, 0.09);
             z-index: 1;
             pointer-events: none;
             line-height: 1;
+        }
+
+        /* Alternate colour between consecutive bid periods so a run of days
+           reads as visually distinct from the next one */
+        .day-cell.bp-period-b .bp-marker {
+            color: rgba(25, 118, 210, 0.16);
+        }
+
+        /* Mark the first day of each bid period with a coloured top edge,
+           so the transition is obvious even when scanning quickly */
+        .day-cell.bp-boundary {
+            box-shadow: inset 0 3px 0 0 rgba(25, 118, 210, 0.45);
+        }
+
+        /* Month-mini (year view) needs a much smaller marker or it
+           overflows into neighbouring day cells */
+        .month-mini .bp-marker {
+            font-size: 12px;
+            font-weight: 700;
+            bottom: 2px;
+            right: 3px;
+        }
+
+        .month-mini .day-cell.bp-boundary {
+            box-shadow: inset 0 2px 0 0 rgba(25, 118, 210, 0.5);
         }
 
     </style>
@@ -851,19 +876,23 @@
         const BP_START_DATE = new Date('2026-01-26T00:00:00');
         const BP_START_NUMBER = 3731;
 
-        function getBidPeriodStart(date) {
+        // Returns { number, index, isStart } for any date within a tracked
+        // bid period, or null if the date is before BP_START_DATE.
+        function getBidPeriodInfo(date) {
             const targetDate = new Date(date);
             targetDate.setHours(0, 0, 0, 0);
             const daysSinceStart = Math.floor((targetDate - BP_START_DATE) / 86400000);
-            if (daysSinceStart < 0) return null; // before the first tracked bid period
-            // Every day within a 28-day period now maps to that period's number,
-            // not just the first day (which was the previous behaviour).
+            if (daysSinceStart < 0) return null;
             const periodIndex = Math.floor(daysSinceStart / 28);
             let periodNumber = BP_START_NUMBER;
             for (let i = 0; i < periodIndex; i++) {
                 periodNumber += (i % 2 === 0) ? 4 : 6;
             }
-            return periodNumber;
+            return {
+                number: periodNumber,
+                index: periodIndex,
+                isStart: daysSinceStart % 28 === 0
+            };
         }
 
 
@@ -1338,16 +1367,11 @@
                 const allEvents = [];
                 for (const calendar of calendars) {
                     try {
-                        const response = await gapi.client.calendar.events.list({
-                            'calendarId': calendar.id,
-                            'timeMin': queryStart.toISOString(),
-                            'timeMax': queryEnd.toISOString(),
-                            'showDeleted': false,
-                            'singleEvents': true,
-                            'orderBy': 'startTime'
-                        });
-
-                        const events = response.result.items || [];
+                        const events = await fetchAllCalendarEvents(
+                            calendar.id,
+                            queryStart.toISOString(),
+                            queryEnd.toISOString()
+                        );
                         events.forEach(event => {
                             event.calendarColor = calendar.backgroundColor || '#4285f4';
                             event.calendarName = calendar.summary;
@@ -1435,11 +1459,13 @@
                 const dayCell = document.createElement('div');
                 dayCell.className = 'day-cell';
 
-                const bpNumber = getBidPeriodStart(currentDate);
-                if (bpNumber) {
+                const bpInfo = getBidPeriodInfo(currentDate);
+                if (bpInfo) {
+                    dayCell.classList.add(bpInfo.index % 2 === 0 ? 'bp-period-a' : 'bp-period-b');
+                    if (bpInfo.isStart) dayCell.classList.add('bp-boundary');
                     const bpMarker = document.createElement('div');
                     bpMarker.className = 'bp-marker';
-                    bpMarker.textContent = 'BP' + bpNumber;
+                    bpMarker.textContent = 'BP' + bpInfo.number;
                     dayCell.appendChild(bpMarker);
                 }
                 
@@ -1569,6 +1595,33 @@
             return null;
         }
 
+        // Google's Calendar API caps each page at 250 events by default and
+        // silently stops there — it does NOT error out, it just returns a
+        // nextPageToken you have to follow yourself. A year of flight/roster
+        // events across several subscribed calendars can easily exceed that,
+        // which looked like "later months just don't load". This walks every
+        // page (maxResults raised to the API's own ceiling of 2500) so
+        // nothing gets silently dropped.
+        async function fetchAllCalendarEvents(calendarId, timeMinISO, timeMaxISO) {
+            let events = [];
+            let pageToken = undefined;
+            do {
+                const response = await gapi.client.calendar.events.list({
+                    calendarId: calendarId,
+                    timeMin: timeMinISO,
+                    timeMax: timeMaxISO,
+                    showDeleted: false,
+                    singleEvents: true,
+                    orderBy: 'startTime',
+                    maxResults: 2500,
+                    pageToken: pageToken
+                });
+                events = events.concat(response.result.items || []);
+                pageToken = response.result.nextPageToken;
+            } while (pageToken);
+            return events;
+        }
+
         async function loadYearView() {
             const year = currentMonth.getFullYear();
             document.getElementById('monthYear').textContent = year;
@@ -1584,23 +1637,23 @@
                 const yearStart = new Date(year, 0, 1);
                 const yearEnd = new Date(year, 11, 31, 23, 59, 59);
 
-                // MK Q fetched directly via ICS — no padding needed for Google API queries
-                const yearQueryStart = yearStart;
+                // Only pull forward from today, not the whole year from Jan 1 —
+                // this app is for tracking upcoming roster/pay, not history, and
+                // trimming the range cuts down how many events get pulled per
+                // calendar (fewer events = fewer pagination round trips too).
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const yearQueryStart = today > yearStart ? today : yearStart;
                 const yearQueryEnd   = yearEnd;
-                
+
                 const allEvents = [];
                 for (const calendar of calendars) {
                     try {
-                        const response = await gapi.client.calendar.events.list({
-                            'calendarId': calendar.id,
-                            'timeMin': yearQueryStart.toISOString(),
-                            'timeMax': yearQueryEnd.toISOString(),
-                            'showDeleted': false,
-                            'singleEvents': true,
-                            'orderBy': 'startTime'
-                        });
-
-                        const events = response.result.items || [];
+                        const events = await fetchAllCalendarEvents(
+                            calendar.id,
+                            yearQueryStart.toISOString(),
+                            yearQueryEnd.toISOString()
+                        );
                         events.forEach(event => {
                             event.calendarColor = calendar.backgroundColor || '#4285f4';
                             event.calendarName = calendar.summary;
@@ -1689,11 +1742,13 @@
                     const dayCell = document.createElement('div');
                     dayCell.className = 'day-cell';
 
-                    const bpNumber = getBidPeriodStart(currentDate);
-                    if (bpNumber) {
+                    const bpInfo = getBidPeriodInfo(currentDate);
+                    if (bpInfo) {
+                        dayCell.classList.add(bpInfo.index % 2 === 0 ? 'bp-period-a' : 'bp-period-b');
+                        if (bpInfo.isStart) dayCell.classList.add('bp-boundary');
                         const bpMarker = document.createElement('div');
                         bpMarker.className = 'bp-marker';
-                        bpMarker.textContent = 'BP' + bpNumber;
+                        bpMarker.textContent = 'BP' + bpInfo.number;
                         dayCell.appendChild(bpMarker);
                     }
                     
