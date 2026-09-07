@@ -1667,8 +1667,12 @@
         }
 
         async function loadYearView() {
-            const year = currentMonth.getFullYear();
-            document.getElementById('monthYear').textContent = year;
+            // Rolling 12-month window: starts at the 1st of currentMonth's
+            // month and runs for 12 months total (e.g. loading in Sep 2026
+            // shows Sep 2026 through Aug 2027), rather than a fixed Jan-Dec
+            // calendar year.
+            const rangeStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+            document.getElementById('monthYear').textContent = formatRollingRangeLabel(rangeStart);
 
             try {
                 // ===== FIX: showHidden:true to include subscribed/other calendars =====
@@ -1677,14 +1681,16 @@
                     showDeleted: false
                 });
                 const calendars = calendarListResponse.result.items || [];
-                
-                const yearStart = new Date(year, 0, 1);
-                const yearEnd = new Date(year, 11, 31, 23, 59, 59);
 
-                // Only pull forward from today, not the whole year from Jan 1 —
-                // this app is for tracking upcoming roster/pay, not history, and
-                // trimming the range cuts down how many events get pulled per
-                // calendar (fewer events = fewer pagination round trips too).
+                const yearStart = rangeStart;
+                // Last day of the 12th month in the window (rangeStart + 11 months).
+                const yearEnd = new Date(rangeStart.getFullYear(), rangeStart.getMonth() + 12, 0, 23, 59, 59);
+
+                // Only pull forward from today, not the whole window from its
+                // first day — this app is for tracking upcoming roster/pay,
+                // not history, and trimming the range cuts down how many
+                // events get pulled per calendar (fewer events = fewer
+                // pagination round trips too).
                 const today = new Date();
                 today.setHours(0, 0, 0, 0);
                 const yearQueryStart = today > yearStart ? today : yearStart;
@@ -1713,7 +1719,7 @@
                 const webcalEventsYear = await fetchWebcalEvents();
                 allEvents.push(...webcalEventsYear);
 
-                renderYearView(year, allEvents);
+                renderYearView(rangeStart, allEvents);
             } catch (error) {
                 console.error('Error loading year view:', error);
                 document.getElementById('content').innerHTML = 
@@ -1721,7 +1727,14 @@
             }
         }
 
-        function renderYearView(year, events) {
+        function formatRollingRangeLabel(rangeStart) {
+            const rangeEnd = new Date(rangeStart.getFullYear(), rangeStart.getMonth() + 11, 1);
+            const startLabel = rangeStart.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+            const endLabel = rangeEnd.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+            return `${startLabel} – ${endLabel}`;
+        }
+
+        function renderYearView(rangeStart, events) {
             const yearContainer = document.createElement('div');
             yearContainer.className = 'year-view-container';
 
@@ -1745,7 +1758,10 @@
                 }
             });
 
-            for (let month = 0; month < 12; month++) {
+            for (let offset = 0; offset < 12; offset++) {
+                const year = rangeStart.getFullYear();
+                const month = rangeStart.getMonth() + offset;
+
                 const monthDiv = document.createElement('div');
                 monthDiv.className = 'month-mini';
 
